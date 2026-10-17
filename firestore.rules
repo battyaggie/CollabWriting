@@ -1,0 +1,60 @@
+rules_version = '2';
+
+// Trust model: this is a classroom tool, not a public app. A "student" is anyone
+// who signed in anonymously with a valid class code and picked an alias; a
+// "teacher" is anyone signed in with Firebase email/password whose uid owns the
+// class. Within a class, students can edit each other's writing (it's meant to be
+// a shared document, like a Word page passed around the group) and can only edit
+// their own feedback comments (feedback authorship matters for grading).
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isTeacherOf(classId) {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/classes/$(classId)).data.teacherId == request.auth.uid;
+    }
+
+    match /classes/{classId} {
+      // Public read so a student can look up a class by its code before joining,
+      // and so live projector/dashboard views work. No sensitive data lives here.
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.teacherId == request.auth.uid;
+      allow update, delete: if isTeacherOf(classId);
+
+      match /students/{studentId} {
+        allow read: if true;
+        // A student can create/update only their own roster entry (alias).
+        // The teacher can also update it (used when assigning groups).
+        allow create: if isSignedIn() && request.auth.uid == studentId;
+        allow update: if isSignedIn() && (request.auth.uid == studentId || isTeacherOf(classId));
+        allow delete: if isTeacherOf(classId);
+      }
+
+      match /groups/{groupId} {
+        allow read: if true;
+        allow write: if isTeacherOf(classId);
+
+        match /runs/{runId} {
+          // Shared writing: any signed-in student (or the teacher) in the class
+          // can add, edit or delete any line -- it's meant to work like a
+          // document the whole group can freely edit together.
+          allow read: if true;
+          allow write: if isSignedIn();
+        }
+
+        match /feedback/{entryId} {
+          allow read: if true;
+          allow create: if isSignedIn() && request.resource.data.studentId == request.auth.uid;
+          // Only the author (or the teacher, for moderation) can edit/delete a
+          // feedback comment -- authorship matters here for grading.
+          allow update, delete: if isSignedIn() &&
+            (resource.data.studentId == request.auth.uid || isTeacherOf(classId));
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background: #f4f5f6;
+  color: #323f4f;
+}
+
+.tw-field input,
+.tw-field select,
+.tw-field textarea {
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 15px;
+  color: #323f4f;
+  padding: 12px 14px;
+  border: 1px solid #aaadaf;
+  border-radius: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  background: #fff;
+}
+
+.tw-field input:focus,
+.tw-field select:focus,
+.tw-field textarea:focus {
+  outline: 2px solid #66a2c4;
+  outline-offset: 1px;
+}
+
+.tw-field label {
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: #323f4f;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.tw-btn {
+  display: inline-block;
+  text-decoration: none;
+  text-align: center;
+  cursor: pointer;
+  font-family: Arial, Helvetica, sans-serif;
+  font-weight: 700;
+  border: none;
+  border-radius: 8px;
+  padding: 13px 20px;
+  font-size: 15px;
+}
+
+.tw-btn-primary {
+  background: #00649c;
+  color: #fff;
+}
+
+.tw-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tw-btn-secondary {
+  background: #fff;
+  color: #00649c;
+  border: 1px solid #66a2c4;
+}
+
+.tw-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #f4f5f6;
+  border-radius: 999px;
+  padding: 6px 14px 6px 6px;
+}
+
+.tw-run[contenteditable="true"]:focus {
+  outline: 2px dashed #66a2c4;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
