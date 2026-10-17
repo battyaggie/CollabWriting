@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { doc, getDoc, runTransaction, serverTimestamp } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, runTransaction } from "firebase/firestore";
 import { auth, db, ensureAnonymousUser } from "@/lib/firebase";
 import { normalizeCode } from "@/lib/classCode";
 import { PrivacyNotice } from "@/components/PrivacyNotice";
@@ -47,16 +47,20 @@ export default function JoinPage() {
       const user = await ensureAnonymousUser();
       const studentRef = doc(db, "classes", classId, "students", user.uid);
 
+      // Students may not write to the class record (only the teacher can), so the
+      // colour is chosen here: the lowest colour not yet used by anyone in the class.
+      // Two students joining at the very same moment could get the same colour.
+      const rosterSnap = await getDocs(collection(db, "classes", classId, "students"));
+      const used = new Set(rosterSnap.docs.map((d) => (d.data() as { colorIndex?: number }).colorIndex));
+      let colorIndex = 0;
+      while (used.has(colorIndex)) colorIndex++;
+
       await runTransaction(db, async (tx) => {
         const existing = await tx.get(studentRef);
         if (existing.exists()) {
           tx.update(studentRef, { alias });
           return;
         }
-        const freshClassSnap = await tx.get(classRef);
-        const freshClass = freshClassSnap.data() as ClassDoc;
-        const colorIndex = freshClass.nextColorIndex ?? 0;
-        tx.update(classRef, { nextColorIndex: colorIndex + 1 });
         tx.set(studentRef, {
           alias,
           colorIndex,
