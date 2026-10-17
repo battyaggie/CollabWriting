@@ -6,6 +6,7 @@ import { doc, getDoc, setDoc } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { makeClassCode } from "@/lib/classCode";
+import { PrivacyNotice } from "@/components/PrivacyNotice";
 import type { ClassDoc } from "@/lib/types";
 
 const SEMESTERS = ["WS 2026/27", "SS 2027", "WS 2027/28"];
@@ -123,12 +124,10 @@ export default function NewClassPage() {
               onChange={(e) => setTargetGroupSize(Number(e.target.value))}
             />
           </div>
-          <div className="bg-[#EAF1F5] border border-tw-blue-light rounded-lg p-3">
-            <span className="text-xs text-tw-navy">
-              Runs on Firebase under your own project &mdash; no student names or writing go anywhere except
-              your class&rsquo;s data.
-            </span>
-          </div>
+          <PrivacyNotice
+            label="Notice students will see"
+            caption="Shown on the join screen and in the waiting room."
+          />
           {error && <p className="text-sm text-[#C1440E] m-0">{error}</p>}
           <button type="submit" className="tw-btn tw-btn-primary" disabled={loading}>
             {loading ? "Creating…" : "Open Waiting Room & Get Class Code"}

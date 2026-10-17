@@ -1,0 +1,19 @@
+# dependencies
+node_modules
+
+# next.js build output
+.next
+out
+
+# local env files (real Firebase settings live in Vercel, never in git)
+.env
+.env.local
+.env.*.local
+
+# vercel
+.vercel
+
+# misc
+.DS_Store
+*.tsbuildinfo
+npm-debug.log*

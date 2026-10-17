@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { collection, doc, onSnapshot, orderBy, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { RosterChips } from "@/components/RosterChips";
+import { PrivacyNotice } from "@/components/PrivacyNotice";
 import type { ClassDoc, StudentDoc } from "@/lib/types";
 
 export default function WaitingRoomPage() {
@@ -65,10 +66,8 @@ export default function WaitingRoomPage() {
               <span className="text-xs text-tw-grey">and enter class code</span>
               <span className="font-mono text-3xl text-tw-blue font-bold tracking-wide">{classData.classCode}</span>
             </div>
-            <div className="w-full bg-[#EAF1F5] border border-tw-blue-light rounded-lg p-3">
-              <span className="text-xs text-tw-navy">
-                Runs on your Firebase project &mdash; only your class can see this data.
-              </span>
+            <div className="w-full">
+              <PrivacyNotice />
             </div>
           </div>
 

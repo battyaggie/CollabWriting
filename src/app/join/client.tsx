@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { doc, getDoc, runTransaction, serverTimestamp } from "firebase/firestore";
 import { auth, db, ensureAnonymousUser } from "@/lib/firebase";
 import { normalizeCode } from "@/lib/classCode";
+import { PrivacyNotice } from "@/components/PrivacyNotice";
 import type { ClassDoc, StudentSession } from "@/lib/types";
 
 export default function JoinPage() {
@@ -24,7 +25,7 @@ export default function JoinPage() {
       return;
     }
     if (!alias) {
-      setError("Enter a name or nickname.");
+      setError("Enter a nickname.");
       return;
     }
     setLoading(true);
@@ -96,11 +97,11 @@ export default function JoinPage() {
             />
           </div>
           <div className="tw-field">
-            <label htmlFor="tw-name">Your name</label>
+            <label htmlFor="tw-name">Your nickname</label>
             <input
               id="tw-name"
               type="text"
-              placeholder="e.g. Anna, or a nickname"
+              placeholder="e.g. Anna_K, or any nickname"
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
@@ -110,9 +111,7 @@ export default function JoinPage() {
             {loading ? "Joining…" : "Join Session"}
           </button>
         </form>
-        <p className="text-[13px] text-tw-grey text-center m-0">
-          Any name or nickname is fine &mdash; check with your teacher how they&rsquo;ll match it to you for grading.
-        </p>
+        <PrivacyNotice />
       </div>
       <a
         href="/teacher/login"
