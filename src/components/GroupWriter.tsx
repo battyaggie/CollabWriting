@@ -25,6 +25,8 @@ interface Props {
   colorIndex: number;
   /** true for the read-only, enlarged projector rendering */
   projector?: boolean;
+  /** true for a read-only, normal-size view of another group's live text (peer review) */
+  readOnly?: boolean;
 }
 
 type Run = RunDoc & { id: string };
@@ -115,7 +117,7 @@ function syncElement(el: HTMLElement, segs: Segment[]): boolean {
   return true;
 }
 
-export function GroupWriter({ classId, groupId, studentId, alias, colorIndex, projector }: Props) {
+export function GroupWriter({ classId, groupId, studentId, alias, colorIndex, projector, readOnly }: Props) {
   const [runs, setRuns] = useState<Run[]>([]);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -138,7 +140,7 @@ export function GroupWriter({ classId, groupId, studentId, alias, colorIndex, pr
       setRuns(snap.docs.map((d) => ({ id: d.id, ...(d.data() as RunDoc) })));
       if (!hasCheckedEmpty.current) {
         hasCheckedEmpty.current = true;
-        if (snap.empty) {
+        if (snap.empty && !readOnly && !projector) {
           addDoc(runsCol, {
             studentId,
             alias,
@@ -326,6 +328,25 @@ export function GroupWriter({ classId, groupId, studentId, alias, colorIndex, pr
     e.preventDefault();
     const text = e.clipboardData.getData("text/plain");
     document.execCommand("insertText", false, text);
+  }
+
+  if (readOnly) {
+    return (
+      <div className="bg-white border border-tw-grey-light rounded-xl p-6 text-[17px] leading-[1.7]">
+        {runs.length === 0 && <p className="text-tw-grey italic m-0">Nothing written yet&hellip;</p>}
+        {runs.map((r) => (
+          <p key={r.id} className="m-0 mb-4">
+            {r.text
+              ? runSegments(r).map((seg, i) => (
+                  <span key={i} style={{ color: colorFor(seg.colorIndex) }} title={seg.alias}>
+                    {seg.text}
+                  </span>
+                ))
+              : " "}
+          </p>
+        ))}
+      </div>
+    );
   }
 
   if (projector) {

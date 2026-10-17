@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { collection, doc, onSnapshot, orderBy, query, updateDoc } from "firebase/firestore";
+import { collection, doc, onSnapshot, orderBy, query, updateDoc, writeBatch } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { colorFor } from "@/lib/colors";
 import type { ClassDoc, GroupDoc, StudentDoc } from "@/lib/types";
@@ -15,6 +15,10 @@ export default function TeacherDashboardPage() {
   const [classData, setClassData] = useState<(ClassDoc & { id: string }) | null>(null);
   const [groups, setGroups] = useState<GroupRow[]>([]);
   const [students, setStudents] = useState<StudentRow[]>([]);
+  const [linkA, setLinkA] = useState("");
+  const [linkB, setLinkB] = useState("");
+  const [mutual, setMutual] = useState(true);
+  const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, "classes", classId), (snap) => {
@@ -48,6 +52,61 @@ export default function TeacherDashboardPage() {
 
   async function project(groupId: string) {
     await updateDoc(doc(db, "classes", classId), { hotSeatGroupId: groupId });
+  }
+
+  const groupName = (id: string | null | undefined) => groups.find((g) => g.id === id)?.name ?? "—";
+
+  /** Group A reviews group B (and B reviews A too if "they review each other" is ticked). */
+  async function linkGroups() {
+    if (!linkA || !linkB || linkA === linkB) {
+      setMessage("Pick two different groups.");
+      return;
+    }
+    const batch = writeBatch(db);
+    batch.update(doc(db, "classes", classId, "groups", linkA), { reviewsGroupId: linkB });
+    if (mutual) batch.update(doc(db, "classes", classId, "groups", linkB), { reviewsGroupId: linkA });
+    await batch.commit();
+    setMessage(
+      mutual
+        ? `${groupName(linkA)} and ${groupName(linkB)} now review each other.`
+        : `${groupName(linkA)} now reviews ${groupName(linkB)}.`
+    );
+    setLinkA("");
+    setLinkB("");
+  }
+
+  async function unlink(groupId: string) {
+    await updateDoc(doc(db, "classes", classId, "groups", groupId), { reviewsGroupId: null });
+  }
+
+  /** Time's up: every group that is not yet linked gets a random partner. */
+  async function linkRestAtRandom() {
+    const free = groups.filter((g) => !g.reviewsGroupId);
+    if (free.length === 0) {
+      setMessage("Every group already has a group to review.");
+      return;
+    }
+    if (groups.length < 2) {
+      setMessage("You need at least two groups.");
+      return;
+    }
+    const shuffled = [...free].sort(() => Math.random() - 0.5);
+    const batch = writeBatch(db);
+    while (shuffled.length >= 2) {
+      const a = shuffled.pop()!;
+      const b = shuffled.pop()!;
+      batch.update(doc(db, "classes", classId, "groups", a.id), { reviewsGroupId: b.id });
+      batch.update(doc(db, "classes", classId, "groups", b.id), { reviewsGroupId: a.id });
+    }
+    if (shuffled.length === 1) {
+      // an odd group out reviews a random other group
+      const lone = shuffled[0];
+      const others = groups.filter((g) => g.id !== lone.id);
+      const pick = others[Math.floor(Math.random() * others.length)];
+      batch.update(doc(db, "classes", classId, "groups", lone.id), { reviewsGroupId: pick.id });
+    }
+    await batch.commit();
+    setMessage("Done: the remaining groups were matched at random.");
   }
 
   if (!classData) {
@@ -86,6 +145,53 @@ export default function TeacherDashboardPage() {
           </nav>
         </div>
 
+        <div className="bg-white border border-tw-grey-light rounded-xl p-6 flex flex-col gap-4">
+          <div>
+            <h2 className="font-display text-base text-tw-navy m-0">Groups give each other feedback</h2>
+            <p className="text-sm text-tw-grey mt-1 mb-0">
+              Link two groups that have finished so they can read each other&rsquo;s text and give feedback. When
+              time is up, match all the remaining groups at random.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1 text-xs text-tw-grey">
+              Group
+              <select className="text-sm text-tw-navy border border-tw-grey-light rounded-md px-2 py-1.5 bg-white" value={linkA} onChange={(e) => setLinkA(e.target.value)}>
+                <option value="">Choose&hellip;</option>
+                {groups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <span className="text-sm text-tw-grey pb-1.5">{mutual ? "\u2194" : "\u2192"}</span>
+            <label className="flex flex-col gap-1 text-xs text-tw-grey">
+              Group
+              <select className="text-sm text-tw-navy border border-tw-grey-light rounded-md px-2 py-1.5 bg-white" value={linkB} onChange={(e) => setLinkB(e.target.value)}>
+                <option value="">Choose&hellip;</option>
+                {groups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex items-center gap-2 text-sm text-tw-navy pb-1.5">
+              <input type="checkbox" checked={mutual} onChange={(e) => setMutual(e.target.checked)} />
+              They review each other
+            </label>
+            <button className="tw-btn tw-btn-primary" onClick={linkGroups}>
+              Link groups
+            </button>
+            <span className="flex-1" />
+            <button className="tw-btn tw-btn-secondary" onClick={linkRestAtRandom}>
+              Time&rsquo;s up &mdash; match the rest at random
+            </button>
+          </div>
+          {message && <p className="text-sm text-tw-green m-0">{message}</p>}
+        </div>
+
         <div className="grid grid-cols-2 gap-5">
           {groups.map((g) => {
             const isHot = classData.hotSeatGroupId === g.id;
@@ -108,6 +214,23 @@ export default function TeacherDashboardPage() {
                       {m.alias}
                     </span>
                   ))}
+                </div>
+                <div className="text-xs text-tw-grey flex flex-col gap-0.5">
+                  <span>
+                    Gives feedback to:{" "}
+                    <strong className="text-tw-navy">{g.reviewsGroupId ? groupName(g.reviewsGroupId) : "not linked yet"}</strong>
+                    {g.reviewsGroupId && (
+                      <button className="ml-2 text-tw-blue" onClick={() => unlink(g.id)}>
+                        unlink
+                      </button>
+                    )}
+                  </span>
+                  <span>
+                    Gets feedback from:{" "}
+                    <strong className="text-tw-navy">
+                      {groups.filter((o) => o.reviewsGroupId === g.id).map((o) => o.name).join(", ") || "—"}
+                    </strong>
+                  </span>
                 </div>
                 <div className="flex items-center gap-3 mt-auto pt-3 border-t border-tw-border">
                   <button

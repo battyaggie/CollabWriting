@@ -24,6 +24,8 @@ export interface GroupDoc {
   name: string; // e.g. "Group 1"
   memberIds: string[];
   createdAt: number;
+  /** The group whose writing this group reviews and gives feedback on (set by the teacher). */
+  reviewsGroupId?: string | null;
 }
 
 /** A stretch of text written by one student. A paragraph is a list of these. */
