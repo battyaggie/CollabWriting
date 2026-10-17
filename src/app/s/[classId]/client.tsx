@@ -115,6 +115,15 @@ export default function StudentClassPage() {
           >
             Give Feedback
           </button>
+          <span className="flex-1" />
+          <a
+            href={`/s/${classId}/print`}
+            target="_blank"
+            rel="noreferrer"
+            className="tw-btn tw-btn-secondary no-underline"
+          >
+            Print / Save as PDF
+          </a>
         </div>
 
         {tab === "write" && reviewsId && (
