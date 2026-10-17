@@ -26,11 +26,23 @@ export interface GroupDoc {
   createdAt: number;
 }
 
-export interface RunDoc {
+/** A stretch of text written by one student. A paragraph is a list of these. */
+export interface Segment {
   studentId: string;
   alias: string;
   colorIndex: number;
   text: string;
+}
+
+export interface RunDoc {
+  /** Who started this paragraph (used as the author of text with no segments, e.g. older documents). */
+  studentId: string;
+  alias: string;
+  colorIndex: number;
+  /** The whole paragraph as plain text (always kept in sync with `segments`). */
+  text: string;
+  /** Who wrote which part of the paragraph. Missing on older documents. */
+  segments?: Segment[];
   order: number;
   updatedAt: number;
 }

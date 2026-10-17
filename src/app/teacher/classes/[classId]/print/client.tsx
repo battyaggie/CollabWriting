@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { collection, doc, onSnapshot, orderBy, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { colorFor } from "@/lib/colors";
+import { runSegments } from "@/lib/segments";
 import type { ClassDoc, FeedbackDoc, GroupDoc, RunDoc } from "@/lib/types";
 
 type GroupRow = GroupDoc & { id: string };
@@ -121,8 +122,12 @@ export default function PrintExportPage() {
               <div className="text-[15px] leading-[1.7] mb-8">
                 {runs.map((r, i) => (
                   <p key={i} className="m-0 mb-3">
-                    <span style={{ color: colorFor(r.colorIndex), fontWeight: 700 }}>{r.alias}: </span>
-                    <span>{r.text}</span>
+                    {runSegments(r).map((seg, j) => (
+                      <span key={j} style={{ color: colorFor(seg.colorIndex) }}>
+                        <strong>{seg.alias}: </strong>
+                        {seg.text}{" "}
+                      </span>
+                    ))}
                   </p>
                 ))}
               </div>
