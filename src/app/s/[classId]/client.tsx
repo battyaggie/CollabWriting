@@ -143,8 +143,9 @@ export default function StudentClassPage() {
             <div className="bg-white border border-tw-grey-light rounded-xl p-8">
               <h2 className="font-display text-lg text-tw-navy mt-0 mb-1">Give feedback to {reviewsName}</h2>
               <p className="text-sm text-tw-grey mt-0 mb-5">
-                Read their writing below (it updates as they type), then share what&rsquo;s working and what
-                could be clearer.
+                Read their writing below and correct it directly &mdash; your corrections show in your colour
+                (your teacher keeps a copy of the original). Then use the comment box to say what&rsquo;s working
+                and what could be clearer.
               </p>
               <GroupWriter
                 classId={classId}
@@ -152,7 +153,6 @@ export default function StudentClassPage() {
                 studentId={session.studentId}
                 alias={session.alias}
                 colorIndex={student.colorIndex}
-                readOnly
               />
               <div className="mt-6">
                 <FeedbackThread

@@ -6,9 +6,19 @@ import { collection, doc, onSnapshot, orderBy, query } from "firebase/firestore"
 import { db } from "@/lib/firebase";
 import { colorFor } from "@/lib/colors";
 import { runSegments } from "@/lib/segments";
-import type { ClassDoc, FeedbackDoc, GroupDoc, RunDoc } from "@/lib/types";
+import type { ClassDoc, FeedbackDoc, GroupDoc, RunDoc, Segment, StudentDoc } from "@/lib/types";
 
 type GroupRow = GroupDoc & { id: string };
+
+function CorrectedSegment({ seg, isReviewer }: { seg: Segment; isReviewer: boolean }) {
+  if (!isReviewer) return <span style={{ color: colorFor(seg.colorIndex) }}>{seg.text}</span>;
+  return (
+    <span style={{ color: colorFor(seg.colorIndex), textDecoration: "underline", fontWeight: 600 }}>
+      {seg.text}
+      <sup className="text-[9px] font-normal no-underline"> {seg.alias}</sup>
+    </span>
+  );
+}
 
 /**
  * A plain, printable "one group per page" document: the group's writing,
@@ -23,6 +33,7 @@ export default function PrintExportPage() {
   const { classId } = useParams<{ classId: string }>();
   const [classData, setClassData] = useState<(ClassDoc & { id: string }) | null>(null);
   const [groups, setGroups] = useState<GroupRow[]>([]);
+  const [memberIdsByGroup, setMemberIdsByGroup] = useState<Record<string, Set<string>>>({});
   const [runsByGroup, setRunsByGroup] = useState<Record<string, RunDoc[]>>({});
   const [feedbackByGroup, setFeedbackByGroup] = useState<Record<string, (FeedbackDoc & { id: string })[]>>({});
 
@@ -36,6 +47,18 @@ export default function PrintExportPage() {
   useEffect(() => {
     const unsub = onSnapshot(query(collection(db, "classes", classId, "groups"), orderBy("createdAt", "asc")), (snap) => {
       setGroups(snap.docs.map((d) => ({ id: d.id, ...(d.data() as GroupDoc) })));
+    });
+    return () => unsub();
+  }, [classId]);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "classes", classId, "students"), (snap) => {
+      const map: Record<string, Set<string>> = {};
+      snap.docs.forEach((d) => {
+        const st = d.data() as StudentDoc;
+        if (st.groupId) (map[st.groupId] ??= new Set()).add(d.id);
+      });
+      setMemberIdsByGroup(map);
     });
     return () => unsub();
   }, [classId]);
@@ -70,6 +93,12 @@ export default function PrintExportPage() {
     return () => unsubs.forEach((u) => u());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups.map((g) => g.id).join(",")]);
+
+  /** True if the text was written by someone who is not a member of this group (i.e. a reviewing student). */
+  function isReviewer(groupId: string, seg: Segment): boolean {
+    const members = memberIdsByGroup[groupId];
+    return !!members && !members.has(seg.studentId);
+  }
 
   if (!classData) {
     return (
@@ -117,17 +146,54 @@ export default function PrintExportPage() {
               </p>
               <h1 className="font-display text-2xl text-tw-navy mt-1 mb-6">{g.name}</h1>
 
-              <h2 className="font-display text-sm text-tw-grey tracking-wide uppercase mt-0 mb-3">Their Writing</h2>
+              {g.original ? (
+                <>
+                  <h2 className="font-display text-sm text-tw-grey tracking-wide uppercase mt-0 mb-1">
+                    Original text
+                  </h2>
+                  <p className="text-xs text-tw-grey mt-0 mb-3">
+                    As the group had written it when it was linked to a reviewing group (
+                    {new Date(g.original.takenAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}).
+                  </p>
+                  {g.original.paragraphs.length === 0 && <p className="text-sm text-tw-grey italic">Nothing was written.</p>}
+                  <div className="text-[15px] leading-[1.7] mb-8">
+                    {g.original.paragraphs.map((para, i) => (
+                      <p key={i} className="m-0 mb-3">
+                        {para.segments.map((seg, j) => (
+                          <span key={j} style={{ color: colorFor(seg.colorIndex) }}>
+                            <strong>{seg.alias}: </strong>
+                            {seg.text}{" "}
+                          </span>
+                        ))}
+                      </p>
+                    ))}
+                  </div>
+
+                  <h2 className="font-display text-sm text-tw-grey tracking-wide uppercase mt-0 mb-1">
+                    Text with the reviewers&rsquo; corrections
+                  </h2>
+                  <p className="text-xs text-tw-grey mt-0 mb-3">
+                    Underlined text was added by a student from another group; their nickname is shown in small
+                    type. Words they deleted are no longer shown here &mdash; see the original above.
+                  </p>
+                </>
+              ) : (
+                <h2 className="font-display text-sm text-tw-grey tracking-wide uppercase mt-0 mb-3">Their Writing</h2>
+              )}
               {runs.length === 0 && <p className="text-sm text-tw-grey italic">Nothing was written.</p>}
               <div className="text-[15px] leading-[1.7] mb-8">
                 {runs.map((r, i) => (
                   <p key={i} className="m-0 mb-3">
-                    {runSegments(r).map((seg, j) => (
-                      <span key={j} style={{ color: colorFor(seg.colorIndex) }}>
-                        <strong>{seg.alias}: </strong>
-                        {seg.text}{" "}
-                      </span>
-                    ))}
+                    {runSegments(r).map((seg, j) =>
+                      g.original ? (
+                        <CorrectedSegment key={j} seg={seg} isReviewer={isReviewer(g.id, seg)} />
+                      ) : (
+                        <span key={j} style={{ color: colorFor(seg.colorIndex) }}>
+                          <strong>{seg.alias}: </strong>
+                          {seg.text}{" "}
+                        </span>
+                      )
+                    )}
                   </p>
                 ))}
               </div>

@@ -26,6 +26,14 @@ export interface GroupDoc {
   createdAt: number;
   /** The group whose writing this group reviews and gives feedback on (set by the teacher). */
   reviewsGroupId?: string | null;
+  /** A copy of this group's text taken when another group was first linked to review it. */
+  original?: OriginalText;
+}
+
+export interface OriginalText {
+  takenAt: number;
+  /** One entry per paragraph (an array of arrays is not allowed in Firestore, hence the wrapper object). */
+  paragraphs: { segments: Segment[] }[];
 }
 
 /** A stretch of text written by one student. A paragraph is a list of these. */

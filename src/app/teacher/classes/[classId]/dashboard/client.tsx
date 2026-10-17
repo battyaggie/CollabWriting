@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { collection, doc, onSnapshot, orderBy, query, updateDoc, writeBatch } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { colorFor } from "@/lib/colors";
+import { saveOriginalText } from "@/lib/snapshot";
 import type { ClassDoc, GroupDoc, StudentDoc } from "@/lib/types";
 
 type GroupRow = GroupDoc & { id: string };
@@ -56,12 +57,20 @@ export default function TeacherDashboardPage() {
 
   const groupName = (id: string | null | undefined) => groups.find((g) => g.id === id)?.name ?? "—";
 
+  /** Keeps a copy of the original text of every group that is about to be reviewed (only the first time). */
+  async function saveOriginals(groupIds: string[]) {
+    await Promise.all(
+      groupIds.map((id) => saveOriginalText(classId, id, !!groups.find((g) => g.id === id)?.original))
+    );
+  }
+
   /** Group A reviews group B (and B reviews A too if "they review each other" is ticked). */
   async function linkGroups() {
     if (!linkA || !linkB || linkA === linkB) {
       setMessage("Pick two different groups.");
       return;
     }
+    await saveOriginals(mutual ? [linkA, linkB] : [linkB]);
     const batch = writeBatch(db);
     batch.update(doc(db, "classes", classId, "groups", linkA), { reviewsGroupId: linkB });
     if (mutual) batch.update(doc(db, "classes", classId, "groups", linkB), { reviewsGroupId: linkA });
@@ -91,20 +100,24 @@ export default function TeacherDashboardPage() {
       return;
     }
     const shuffled = [...free].sort(() => Math.random() - 0.5);
-    const batch = writeBatch(db);
+    const links: [string, string][] = []; // [reviewer, reviewed]
     while (shuffled.length >= 2) {
       const a = shuffled.pop()!;
       const b = shuffled.pop()!;
-      batch.update(doc(db, "classes", classId, "groups", a.id), { reviewsGroupId: b.id });
-      batch.update(doc(db, "classes", classId, "groups", b.id), { reviewsGroupId: a.id });
+      links.push([a.id, b.id], [b.id, a.id]);
     }
     if (shuffled.length === 1) {
       // an odd group out reviews a random other group
       const lone = shuffled[0];
       const others = groups.filter((g) => g.id !== lone.id);
       const pick = others[Math.floor(Math.random() * others.length)];
-      batch.update(doc(db, "classes", classId, "groups", lone.id), { reviewsGroupId: pick.id });
+      links.push([lone.id, pick.id]);
     }
+    await saveOriginals(Array.from(new Set(links.map(([, reviewed]) => reviewed))));
+    const batch = writeBatch(db);
+    links.forEach(([reviewer, reviewed]) =>
+      batch.update(doc(db, "classes", classId, "groups", reviewer), { reviewsGroupId: reviewed })
+    );
     await batch.commit();
     setMessage("Done: the remaining groups were matched at random.");
   }
