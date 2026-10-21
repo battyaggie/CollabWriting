@@ -18,14 +18,14 @@ service cloud.firestore {
         get(/databases/$(database)/documents/classes/$(classId)).data.teacherId == request.auth.uid;
     }
 
-    // A class that meets regularly. Students read it to find the exercise that is open now;
-    // only its teacher can create or change it.
     // An exercise is "closed" when its status is "completed": nothing in it can be changed any more
     // (the teacher can still delete it, or reopen it by changing the status back).
     function isOpen(classId) {
       return get(/databases/$(database)/documents/classes/$(classId)).data.status != 'completed';
     }
 
+    // A class that meets regularly. Students read it to find the exercise that is open now;
+    // only its teacher can create or change it.
     match /courses/{courseId} {
       allow read: if true;
       allow create: if isSignedIn() && request.resource.data.teacherId == request.auth.uid;
