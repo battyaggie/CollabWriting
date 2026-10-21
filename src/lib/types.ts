@@ -1,7 +1,25 @@
 export type ClassStatus = "waiting" | "grouped" | "live" | "completed";
 
+/**
+ * A class that meets regularly (e.g. "BMR"). Students always use the same code; the teacher opens
+ * one writing exercise per week inside it. Each exercise is a ClassDoc whose `courseId` is this code.
+ */
+export interface CourseDoc {
+  courseCode: string; // also the Firestore document id
+  teacherId: string;
+  semester: string;
+  className: string;
+  /** default group size for new exercises */
+  targetGroupSize: number;
+  /** the exercise students join when they enter the class code */
+  activeExerciseId: string | null;
+  createdAt: number;
+}
+
 export interface ClassDoc {
   classCode: string; // also the Firestore document id
+  /** The class (CourseDoc) this exercise belongs to; missing on single sessions made before classes existed. */
+  courseId?: string | null;
   teacherId: string;
   semester: string; // e.g. "WS 2026/27"
   className: string; // e.g. "3AHITM"

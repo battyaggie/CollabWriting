@@ -20,6 +20,7 @@ export default function TeacherDashboardPage() {
   const [linkB, setLinkB] = useState("");
   const [mutual, setMutual] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
+  const [confirmClose, setConfirmClose] = useState(false);
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, "classes", classId), (snap) => {
@@ -53,6 +54,11 @@ export default function TeacherDashboardPage() {
 
   async function project(groupId: string) {
     await updateDoc(doc(db, "classes", classId), { hotSeatGroupId: groupId });
+  }
+
+  async function setStatus(status: ClassDoc["status"]) {
+    await updateDoc(doc(db, "classes", classId), { status });
+    setConfirmClose(false);
   }
 
   const groupName = (id: string | null | undefined) => groups.find((g) => g.id === id)?.name ?? "—";
@@ -157,6 +163,37 @@ export default function TeacherDashboardPage() {
             </a>
           </nav>
         </div>
+
+        {classData.status === "completed" ? (
+          <div className="bg-[#EEEFF0] border border-tw-grey-light rounded-xl p-5 flex items-center justify-between gap-4">
+            <span className="text-sm text-tw-navy">
+              <strong>This exercise is closed.</strong> Students can read their text and feedback, but nothing can be
+              changed any more.
+            </span>
+            <button type="button" className="tw-btn tw-btn-secondary" onClick={() => setStatus("live")}>
+              Reopen
+            </button>
+          </div>
+        ) : confirmClose ? (
+          <div className="bg-[#EAF1F5] border border-tw-blue-light rounded-xl p-5 flex flex-col gap-3">
+            <span className="text-sm text-tw-navy">
+              Close this exercise? Students will still see their text and feedback, but no one can change anything
+              any more. You can reopen it later.
+            </span>
+            <div className="flex gap-3">
+              <button type="button" className="tw-btn tw-btn-primary" onClick={() => setStatus("completed")}>
+                Close exercise
+              </button>
+              <button type="button" className="tw-btn tw-btn-secondary" onClick={() => setConfirmClose(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button type="button" className="text-sm text-tw-blue self-start" onClick={() => setConfirmClose(true)}>
+            Close this exercise (no more changes)&hellip;
+          </button>
+        )}
 
         <div className="bg-white border border-tw-grey-light rounded-xl p-6 flex flex-col gap-4">
           <div>

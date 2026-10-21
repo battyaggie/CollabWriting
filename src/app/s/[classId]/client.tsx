@@ -8,7 +8,7 @@ import { GroupWriter } from "@/components/GroupWriter";
 import { WaitingScreen } from "@/components/WaitingScreen";
 import { CommentComposer, FeedbackThread, anchorsOf, useFeedbackEntries } from "@/components/FeedbackThread";
 import { colorFor } from "@/lib/colors";
-import type { ClassDoc, GroupDoc, StudentDoc, StudentSession } from "@/lib/types";
+import type { ClassDoc, CourseDoc, GroupDoc, StudentDoc, StudentSession } from "@/lib/types";
 
 export default function StudentClassPage() {
   const { classId } = useParams<{ classId: string }>();
@@ -18,6 +18,7 @@ export default function StudentClassPage() {
   const [student, setStudent] = useState<StudentDoc | null>(null);
   const [tab, setTab] = useState<"write" | "feedback">("write");
   const [groups, setGroups] = useState<Record<string, GroupDoc>>({});
+  const [activeExerciseId, setActiveExerciseId] = useState<string | null>(null);
   const [roster, setRoster] = useState<(StudentDoc & { id: string })[]>([]);
 
   const ownGroupId = student?.groupId ?? null;
@@ -61,6 +62,16 @@ export default function StudentClassPage() {
     return () => unsub();
   }, [classId]);
 
+  // If the teacher opens a newer exercise in the same class, offer a way into it.
+  useEffect(() => {
+    const courseId = classData?.courseId;
+    if (!courseId) return;
+    const unsub = onSnapshot(doc(db, "courses", courseId), (snap) => {
+      setActiveExerciseId(snap.exists() ? (snap.data() as CourseDoc).activeExerciseId : null);
+    });
+    return () => unsub();
+  }, [classData?.courseId]);
+
   useEffect(() => {
     if (!classId) return;
     const unsub = onSnapshot(collection(db, "classes", classId, "students"), (snap) => {
@@ -99,6 +110,7 @@ export default function StudentClassPage() {
     );
   }
 
+  const closed = classData.status === "completed";
   const isHotSeat = classData.hotSeatGroupId === student.groupId;
   const reviewsName = reviewsId ? groups[reviewsId]?.name ?? "another group" : null;
   const showHotSeatPanel = !!classData.hotSeatGroupId && classData.hotSeatGroupId !== reviewsId;
@@ -107,6 +119,20 @@ export default function StudentClassPage() {
   return (
     <div className="min-h-screen bg-tw-bg">
       <div className="max-w-3xl mx-auto px-6 py-8 flex flex-col gap-6">
+        {classData.courseId && activeExerciseId && activeExerciseId !== classId && (
+          <div className="bg-[#EAF1F5] border border-tw-blue-light rounded-lg p-4 flex items-center justify-between gap-4">
+            <span className="text-sm text-tw-navy">Your teacher has opened a new exercise for this class.</span>
+            <a href={`/join?code=${encodeURIComponent(classData.courseId)}`} className="tw-btn tw-btn-primary no-underline">
+              Join the new exercise
+            </a>
+          </div>
+        )}
+        {closed && (
+          <div className="bg-[#EEEFF0] border border-tw-grey-light rounded-lg p-4 text-sm text-tw-navy">
+            <strong>This exercise is closed.</strong> You can still read everything and print or save it, but nothing
+            can be changed any more.
+          </div>
+        )}
         <div className="flex items-center justify-between">
           <div>
             <span className="font-display text-xs tracking-wide text-tw-blue">TECHNIKUM WIEN</span>
@@ -168,6 +194,7 @@ export default function StudentClassPage() {
             alias={session.alias}
             colorIndex={student.colorIndex}
             anchors={ownAnchors}
+            readOnly={closed}
           />
         )}
 
@@ -187,6 +214,7 @@ export default function StudentClassPage() {
                 alias={session.alias}
                 colorIndex={student.colorIndex}
                 anchors={reviewAnchors}
+                readOnly={closed}
                 renderCommentBox={(selection, close) => (
                   <CommentComposer
                     classId={classId}
@@ -206,6 +234,7 @@ export default function StudentClassPage() {
                   studentId={session.studentId}
                   alias={session.alias}
                   colorIndex={student.colorIndex}
+                  readOnly={closed}
                 />
               </div>
             </div>
@@ -228,7 +257,7 @@ export default function StudentClassPage() {
               studentId={session.studentId}
               alias={session.alias}
               colorIndex={student.colorIndex}
-              readOnly={isHotSeat}
+              readOnly={isHotSeat || closed}
             />
           </div>
         )}

@@ -47,8 +47,11 @@ export default function WaitingRoomPage() {
   return (
     <div className="min-h-screen bg-tw-bg">
       <div className="max-w-5xl mx-auto px-6 py-10 flex flex-col gap-2">
-        <a href="/teacher/classes" className="text-sm text-tw-blue no-underline">
-          &larr; My Classes
+        <a
+          href={classData.courseId ? `/teacher/courses/${classData.courseId}` : "/teacher/classes"}
+          className="text-sm text-tw-blue no-underline"
+        >
+          &larr; {classData.courseId ? classData.className : "My Classes"}
         </a>
         <h1 className="font-display text-2xl text-tw-navy m-0">
           Waiting Room &mdash; {classData.semester} &middot; {classData.className}
@@ -64,7 +67,7 @@ export default function WaitingRoomPage() {
               <span className="text-xs text-tw-grey mt-1.5">Go to</span>
               <span className="font-mono text-base text-tw-navy font-bold">{joinUrl}</span>
               <span className="text-xs text-tw-grey">and enter class code</span>
-              <span className="font-mono text-3xl text-tw-blue font-bold tracking-wide">{classData.classCode}</span>
+              <span className="font-mono text-3xl text-tw-blue font-bold tracking-wide">{classData.courseId ?? classData.classCode}</span>
             </div>
             <div className="w-full">
               <PrivacyNotice />

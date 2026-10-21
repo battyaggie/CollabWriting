@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { collection, doc, getDoc, getDocs, runTransaction, updateDoc } from "firebase/firestore";
 import { auth, db, ensureAnonymousUser } from "@/lib/firebase";
 import { normalizeCode } from "@/lib/classCode";
 import { PrivacyNotice } from "@/components/PrivacyNotice";
-import type { ClassDoc, StudentSession } from "@/lib/types";
+import type { ClassDoc, CourseDoc, StudentSession } from "@/lib/types";
 
 export default function JoinPage() {
   const router = useRouter();
@@ -15,12 +15,26 @@ export default function JoinPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Remember the class code and nickname from last time (and accept ?code=BMR in the address).
+  useEffect(() => {
+    try {
+      const last = JSON.parse(localStorage.getItem("tw-last-join") ?? "null") as { code?: string; alias?: string } | null;
+      const fromUrl = new URLSearchParams(window.location.search).get("code");
+      if (fromUrl) setCode(fromUrl);
+      else if (last?.code) setCode(last.code);
+      if (last?.alias) setName(last.alias);
+    } catch {
+      /* nothing remembered: fine */
+    }
+  }, []);
+
   async function handleJoin(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    const classId = normalizeCode(code);
+    const typedCode = normalizeCode(code);
+    let classId = typedCode;
     const alias = name.trim();
-    if (!classId) {
+    if (!typedCode) {
       setError("Enter the class code your teacher gave you.");
       return;
     }
@@ -30,8 +44,21 @@ export default function JoinPage() {
     }
     setLoading(true);
     try {
-      const classRef = doc(db, "classes", classId);
-      const classSnap = await getDoc(classRef);
+      let classSnap = await getDoc(doc(db, "classes", classId));
+      if (!classSnap.exists()) {
+        // Not an exercise code: maybe the code of a whole class (e.g. "BMR"), which leads to the exercise open now.
+        const courseSnap = await getDoc(doc(db, "courses", typedCode));
+        if (courseSnap.exists()) {
+          const active = (courseSnap.data() as CourseDoc).activeExerciseId;
+          if (!active) {
+            setError("Your teacher hasn't opened an exercise yet. Please try again in a moment.");
+            setLoading(false);
+            return;
+          }
+          classId = active;
+          classSnap = await getDoc(doc(db, "classes", classId));
+        }
+      }
       if (!classSnap.exists()) {
         setError("That class code wasn't found. Double-check it with your teacher.");
         setLoading(false);
@@ -39,7 +66,7 @@ export default function JoinPage() {
       }
       const classData = classSnap.data() as ClassDoc;
       if (classData.status === "completed") {
-        setError("This session has already ended.");
+        setError("This exercise is closed, so it can no longer be joined.");
         setLoading(false);
         return;
       }
@@ -91,6 +118,7 @@ export default function JoinPage() {
 
       const session: StudentSession = { classId, studentId: user.uid, alias };
       localStorage.setItem(`tw-session-${classId}`, JSON.stringify(session));
+      localStorage.setItem("tw-last-join", JSON.stringify({ code: typedCode, alias }));
       router.push(`/s/${classId}`);
     } catch (err) {
       console.error(err);
