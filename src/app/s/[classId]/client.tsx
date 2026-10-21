@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { collection, doc, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { GroupWriter } from "@/components/GroupWriter";
+import { WaitingScreen } from "@/components/WaitingScreen";
 import { CommentComposer, FeedbackThread, anchorsOf, useFeedbackEntries } from "@/components/FeedbackThread";
 import { colorFor } from "@/lib/colors";
 import type { ClassDoc, GroupDoc, StudentDoc, StudentSession } from "@/lib/types";
@@ -17,6 +18,7 @@ export default function StudentClassPage() {
   const [student, setStudent] = useState<StudentDoc | null>(null);
   const [tab, setTab] = useState<"write" | "feedback">("write");
   const [groups, setGroups] = useState<Record<string, GroupDoc>>({});
+  const [roster, setRoster] = useState<(StudentDoc & { id: string })[]>([]);
 
   const ownGroupId = student?.groupId ?? null;
   const reviewsId = ownGroupId ? groups[ownGroupId]?.reviewsGroupId ?? null : null;
@@ -59,6 +61,18 @@ export default function StudentClassPage() {
     return () => unsub();
   }, [classId]);
 
+  useEffect(() => {
+    if (!classId) return;
+    const unsub = onSnapshot(collection(db, "classes", classId, "students"), (snap) => {
+      setRoster(
+        snap.docs
+          .map((d) => ({ id: d.id, ...(d.data() as StudentDoc) }))
+          .sort((a, b) => a.joinedAt - b.joinedAt)
+      );
+    });
+    return () => unsub();
+  }, [classId]);
+
   if (!session || !classData || !student) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-tw-bg">
@@ -67,17 +81,21 @@ export default function StudentClassPage() {
     );
   }
 
-  if (!student.groupId) {
+  // Until the teacher has formed the groups AND pressed start, everyone waits here.
+  if (!student.groupId || classData.status === "waiting" || classData.status === "grouped") {
+    const groupName = student.groupId ? groups[student.groupId]?.name ?? null : null;
+    const groupMates = student.groupId
+      ? roster.filter((r) => r.groupId === student.groupId && r.id !== session.studentId)
+      : [];
     return (
-      <div className="min-h-screen flex items-center justify-center bg-tw-bg">
-        <div className="w-[420px] bg-white border border-tw-grey-light rounded-2xl p-10 flex flex-col gap-3 text-center">
-          <h1 className="font-display text-xl text-tw-navy m-0">You&rsquo;re in, {session.alias}!</h1>
-          <p className="text-sm text-tw-grey m-0">
-            {classData.className} &middot; {classData.taskName}
-          </p>
-          <p className="text-sm text-tw-grey m-0">Waiting for your teacher to form the groups&hellip;</p>
-        </div>
-      </div>
+      <WaitingScreen
+        classData={classData}
+        alias={session.alias}
+        colorIndex={student.colorIndex}
+        roster={roster}
+        groupName={groupName}
+        groupMates={groupMates}
+      />
     );
   }
 
