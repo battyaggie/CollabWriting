@@ -75,8 +75,26 @@ body {
   padding: 6px 14px 6px 6px;
 }
 
-.tw-run[contenteditable="true"]:focus {
-  outline: 2px dashed #66a2c4;
-  outline-offset: 2px;
-  border-radius: 4px;
+/* The one shared text box: every direct child <div> is one paragraph/line. */
+.cw-editor > div,
+.cw-text > div {
+  min-height: 1.7em;
+}
+
+.cw-editor[contenteditable="true"]:focus {
+  outline: 2px solid #66a2c4;
+  outline-offset: 1px;
+}
+
+.cw-editor[contenteditable="false"] {
+  cursor: default;
+}
+
+/* Text that has a comment attached, and the stretch currently being commented on. */
+::highlight(cw-comment) {
+  background-color: #fff1a8;
+}
+
+::highlight(cw-pending) {
+  background-color: #cfe4f2;
 }

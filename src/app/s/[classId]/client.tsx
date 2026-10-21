@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { collection, doc, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { GroupWriter } from "@/components/GroupWriter";
-import { FeedbackThread } from "@/components/FeedbackThread";
+import { CommentComposer, FeedbackThread, anchorsOf, useFeedbackEntries } from "@/components/FeedbackThread";
 import { colorFor } from "@/lib/colors";
 import type { ClassDoc, GroupDoc, StudentDoc, StudentSession } from "@/lib/types";
 
@@ -17,6 +17,12 @@ export default function StudentClassPage() {
   const [student, setStudent] = useState<StudentDoc | null>(null);
   const [tab, setTab] = useState<"write" | "feedback">("write");
   const [groups, setGroups] = useState<Record<string, GroupDoc>>({});
+
+  const ownGroupId = student?.groupId ?? null;
+  const reviewsId = ownGroupId ? groups[ownGroupId]?.reviewsGroupId ?? null : null;
+  // Comments on highlighted words: marked in the text of the group they are about.
+  const ownAnchors = anchorsOf(useFeedbackEntries(classId, ownGroupId));
+  const reviewAnchors = anchorsOf(useFeedbackEntries(classId, reviewsId));
 
   useEffect(() => {
     const raw = localStorage.getItem(`tw-session-${classId}`);
@@ -76,7 +82,6 @@ export default function StudentClassPage() {
   }
 
   const isHotSeat = classData.hotSeatGroupId === student.groupId;
-  const reviewsId = groups[student.groupId]?.reviewsGroupId ?? null;
   const reviewsName = reviewsId ? groups[reviewsId]?.name ?? "another group" : null;
   const showHotSeatPanel = !!classData.hotSeatGroupId && classData.hotSeatGroupId !== reviewsId;
   const canGiveFeedback = !!classData.hotSeatGroupId || !!reviewsId;
@@ -144,6 +149,7 @@ export default function StudentClassPage() {
             studentId={session.studentId}
             alias={session.alias}
             colorIndex={student.colorIndex}
+            anchors={ownAnchors}
           />
         )}
 
@@ -153,8 +159,8 @@ export default function StudentClassPage() {
               <h2 className="font-display text-lg text-tw-navy mt-0 mb-1">Give feedback to {reviewsName}</h2>
               <p className="text-sm text-tw-grey mt-0 mb-5">
                 Read their writing below and correct it directly &mdash; your corrections show in your colour
-                (your teacher keeps a copy of the original). Then use the comment box to say what&rsquo;s working
-                and what could be clearer.
+                (your teacher keeps a copy of the original). To comment on a particular part, select the words
+                and press &ldquo;Comment on this&rdquo;. Use the box at the bottom for feedback on the whole text.
               </p>
               <GroupWriter
                 classId={classId}
@@ -162,6 +168,18 @@ export default function StudentClassPage() {
                 studentId={session.studentId}
                 alias={session.alias}
                 colorIndex={student.colorIndex}
+                anchors={reviewAnchors}
+                renderCommentBox={(selection, close) => (
+                  <CommentComposer
+                    classId={classId}
+                    groupId={reviewsId}
+                    studentId={session.studentId}
+                    alias={session.alias}
+                    colorIndex={student.colorIndex}
+                    selection={selection}
+                    onDone={close}
+                  />
+                )}
               />
               <div className="mt-6">
                 <FeedbackThread

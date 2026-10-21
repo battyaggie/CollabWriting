@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { collection, doc, getDoc, getDocs, runTransaction } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, runTransaction, updateDoc } from "firebase/firestore";
 import { auth, db, ensureAnonymousUser } from "@/lib/firebase";
 import { normalizeCode } from "@/lib/classCode";
 import { PrivacyNotice } from "@/components/PrivacyNotice";
@@ -68,6 +68,26 @@ export default function JoinPage() {
           joinedAt: Date.now(),
         });
       });
+
+      // If two students joined at the very same moment and got the same colour, the one who joined
+      // later picks another one (before writing anything), so every colour belongs to one student.
+      const check = await getDocs(collection(db, "classes", classId, "students"));
+      const roster = check.docs.map((d) => ({ id: d.id, ...(d.data() as { colorIndex?: number; joinedAt?: number }) }));
+      const me = roster.find((r) => r.id === user.uid);
+      if (me) {
+        const clash = roster.some(
+          (r) =>
+            r.id !== user.uid &&
+            r.colorIndex === me.colorIndex &&
+            ((r.joinedAt ?? 0) < (me.joinedAt ?? 0) || ((r.joinedAt ?? 0) === (me.joinedAt ?? 0) && r.id < user.uid))
+        );
+        if (clash) {
+          const taken = new Set(roster.filter((r) => r.id !== user.uid).map((r) => r.colorIndex));
+          let free = 0;
+          while (taken.has(free)) free++;
+          await updateDoc(studentRef, { colorIndex: free });
+        }
+      }
 
       const session: StudentSession = { classId, studentId: user.uid, alias };
       localStorage.setItem(`tw-session-${classId}`, JSON.stringify(session));

@@ -6,7 +6,8 @@ import { collection, doc, onSnapshot, orderBy, query } from "firebase/firestore"
 import { db } from "@/lib/firebase";
 import { colorFor } from "@/lib/colors";
 import { downloadCsv } from "@/lib/csv";
-import { runsToText } from "@/lib/exportFormat";
+import { feedbackText, runsToText } from "@/lib/exportFormat";
+import { QuotedText } from "@/components/FeedbackThread";
 import type { ClassDoc, FeedbackDoc, GroupDoc, RunDoc } from "@/lib/types";
 
 type GroupRow = GroupDoc & { id: string };
@@ -96,7 +97,7 @@ export default function FeedbackByStudentPage() {
             alias,
             e.groupName,
             runsToText(writingByGroup[e.groupId] ?? []),
-            e.text,
+            feedbackText(e),
             new Date(e.createdAt).toLocaleString(),
           ])
         );
@@ -142,6 +143,7 @@ export default function FeedbackByStudentPage() {
               .map((e, i) => (
                 <div key={e.id} className={`py-3 ${i > 0 ? "border-t border-tw-border" : ""}`}>
                   <p className="text-xs text-tw-grey m-0 mb-1">on {e.groupName}</p>
+                  {e.quote && <QuotedText quote={e.quote} />}
                   <p className="text-sm m-0">{e.text}</p>
                 </div>
               ))}

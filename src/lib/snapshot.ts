@@ -12,10 +12,12 @@ export async function saveOriginalText(classId: string, groupId: string, already
   const snap = await getDocs(
     query(collection(db, "classes", classId, "groups", groupId, "runs"), orderBy("order", "asc"))
   );
-  const paragraphs = snap.docs
-    .map((d) => runSegments(d.data() as RunDoc))
-    .filter((segments) => segments.length > 0)
-    .map((segments) => ({ segments }));
+  // One entry per line of the text; empty lines between are kept, empty ones at the start and end dropped.
+  const all = snap.docs.map((d) => runSegments(d.data() as RunDoc));
+  const first = all.findIndex((segments) => segments.length > 0);
+  let last = all.length - 1;
+  while (last > first && all[last].length === 0) last--;
+  const paragraphs = (first === -1 ? [] : all.slice(first, last + 1)).map((segments) => ({ segments }));
   const original: OriginalText = { takenAt: Date.now(), paragraphs };
   await updateDoc(doc(db, "classes", classId, "groups", groupId), { original });
 }

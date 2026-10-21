@@ -63,6 +63,11 @@ export interface FeedbackDoc {
   colorIndex: number;
   text: string;
   createdAt: number;
+  /** Set when the comment is about a highlighted part of the text: the highlighted words... */
+  quote?: string;
+  /** ...and where they were in the text (character positions) when the comment was made. */
+  start?: number;
+  end?: number;
 }
 
 export interface StudentSession {

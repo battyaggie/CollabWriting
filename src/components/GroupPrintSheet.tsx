@@ -18,7 +18,11 @@ interface Props {
  * print view (all groups) and by the student's print view (own group only).
  */
 export function GroupPrintSheet({ classData, group, allRuns, feedback, memberIds }: Props) {
-  const runs = allRuns.filter((r) => r.text.trim().length > 0);
+  // Every paragraph is one line of the text; empty lines between are kept, empty ones at the start/end dropped.
+  const firstLine = allRuns.findIndex((r) => r.text.trim().length > 0);
+  let lastLine = allRuns.length - 1;
+  while (lastLine > firstLine && allRuns[lastLine].text.trim().length === 0) lastLine--;
+  const runs = firstLine === -1 ? [] : allRuns.slice(firstLine, lastLine + 1);
 
   // Everyone who appears on this page (in the text, the original or the feedback), with their colour.
   const people = new Map<string, { alias: string; colorIndex: number }>();
@@ -75,15 +79,19 @@ export function GroupPrintSheet({ classData, group, allRuns, feedback, memberIds
             {new Date(group.original.takenAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}).
           </p>
           {group.original.paragraphs.length === 0 && <p className="text-sm text-tw-grey italic">Nothing was written.</p>}
-          <div className="text-[15px] leading-[1.7] mb-8">
+          <div className="cw-text whitespace-pre-wrap break-words text-[15px] leading-[1.7] mb-8">
             {group.original.paragraphs.map((para, i) => (
-              <p key={i} className="m-0 mb-3">
-                {para.segments.map((seg, j) => (
-                  <span key={j} style={{ color: colorFor(seg.colorIndex) }}>
-                    {seg.text}
-                  </span>
-                ))}
-              </p>
+              <div key={i}>
+                {para.segments.length === 0 ? (
+                  <br />
+                ) : (
+                  para.segments.map((seg, j) => (
+                    <span key={j} style={{ color: colorFor(seg.colorIndex) }}>
+                      {seg.text}
+                    </span>
+                  ))
+                )}
+              </div>
             ))}
           </div>
 
@@ -99,15 +107,19 @@ export function GroupPrintSheet({ classData, group, allRuns, feedback, memberIds
         <h2 className="font-display text-sm text-tw-grey tracking-wide uppercase mt-0 mb-3">Their Writing</h2>
       )}
       {runs.length === 0 && <p className="text-sm text-tw-grey italic">Nothing was written.</p>}
-      <div className="text-[15px] leading-[1.7] mb-8">
+      <div className="cw-text whitespace-pre-wrap break-words text-[15px] leading-[1.7] mb-8">
         {runs.map((r, i) => (
-          <p key={i} className="m-0 mb-3">
-            {runSegments(r).map((seg, j) => (
-              <span key={j} style={{ color: colorFor(seg.colorIndex) }}>
-                {seg.text}
-              </span>
-            ))}
-          </p>
+          <div key={i}>
+            {runSegments(r).length === 0 ? (
+              <br />
+            ) : (
+              runSegments(r).map((seg, j) => (
+                <span key={j} style={{ color: colorFor(seg.colorIndex) }}>
+                  {seg.text}
+                </span>
+              ))
+            )}
+          </div>
         ))}
       </div>
 
@@ -118,6 +130,9 @@ export function GroupPrintSheet({ classData, group, allRuns, feedback, memberIds
           <div className="mb-1 text-sm font-bold" style={{ color: colorFor(e.colorIndex) }}>
             &#9632; {e.alias}
           </div>
+          {e.quote && (
+            <p className="text-xs italic text-tw-grey m-0 mb-1 pl-3 border-l-4 border-[#FFE066]">&ldquo;{e.quote}&rdquo;</p>
+          )}
           <p className="text-sm m-0">{e.text}</p>
         </div>
       ))}
