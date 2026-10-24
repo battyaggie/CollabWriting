@@ -565,7 +565,7 @@ export function GroupWriter(props: Props) {
 
   /* ----- saving ----- */
 
-  function scheduleSave(id: string, delay = 400) {
+  function scheduleSave(id: string, delay = 1500) {
     if (timers.current[id]) clearTimeout(timers.current[id]);
     timers.current[id] = setTimeout(() => {
       delete timers.current[id];
