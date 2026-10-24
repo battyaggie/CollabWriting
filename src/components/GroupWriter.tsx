@@ -1,11 +1,21 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { collection, doc, onSnapshot, orderBy, query, setDoc, writeBatch } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  onSnapshot,
+  orderBy,
+  query,
+  runTransaction,
+  setDoc,
+  writeBatch,
+  type QuerySnapshot,
+} from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { colorFor } from "@/lib/colors";
-import { editParagraphs, mergeRemote, planChanges, resolveAnchor, type Anchor, type Plan } from "@/lib/doc";
-import { runSegments, segmentsText } from "@/lib/segments";
+import { editParagraphs, mergeRemote, planChanges, resolveAnchor, withSegments, type Anchor, type Plan } from "@/lib/doc";
+import { mergeSegments, runSegments, sameSegs, segmentsText } from "@/lib/segments";
 import type { RunDoc, Segment } from "@/lib/types";
 
 interface Props {
@@ -193,6 +203,76 @@ function syncElement(el: HTMLElement, segs: Segment[]): boolean {
   return true;
 }
 
+/* ----- keeping the caret in place when text changes under it ----- */
+
+/** Where a position in `oldText` ends up after the text became `newText` (only the changed stretch moves it). */
+function mapOffset(oldText: string, newText: string, off: number): number {
+  const max = Math.min(oldText.length, newText.length);
+  let head = 0;
+  while (head < max && oldText[head] === newText[head]) head++;
+  let tail = 0;
+  while (tail < max - head && oldText[oldText.length - 1 - tail] === newText[newText.length - 1 - tail]) tail++;
+  if (off <= head) return off;
+  if (off >= oldText.length - tail) return off + (newText.length - oldText.length);
+  return newText.length - tail;
+}
+
+interface SelPoint {
+  el: HTMLElement;
+  off: number;
+  text: string;
+}
+
+function selPoint(root: HTMLElement, node: Node | null, offset: number): SelPoint | null {
+  if (!node || !root.contains(node)) return null;
+  let top: Node | null = node;
+  while (top && top.parentNode !== root) top = top.parentNode;
+  if (!(top instanceof HTMLElement)) return null;
+  const range = document.createRange();
+  range.selectNodeContents(top);
+  range.setEnd(node, offset);
+  return { el: top, off: range.toString().length, text: top.textContent ?? "" };
+}
+
+function pointIn(el: HTMLElement, off: number): { node: Node; offset: number } {
+  let remaining = off;
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const l = n.textContent?.length ?? 0;
+    if (remaining <= l) return { node: n, offset: remaining };
+    remaining -= l;
+  }
+  return { node: el, offset: 0 };
+}
+
+/** Remembers where the caret / selection is, so it can be put back after paragraphs were rewritten. */
+function captureSelection(root: HTMLElement): { anchor: SelPoint; focus: SelPoint } | null {
+  const sel = window.getSelection();
+  if (document.activeElement !== root || !sel || sel.rangeCount === 0) return null;
+  const anchor = selPoint(root, sel.anchorNode, sel.anchorOffset);
+  const focus = selPoint(root, sel.focusNode, sel.focusOffset);
+  return anchor && focus ? { anchor, focus } : null;
+}
+
+function restoreSelection(saved: { anchor: SelPoint; focus: SelPoint } | null) {
+  if (!saved) return;
+  const sel = window.getSelection();
+  if (!sel) return;
+  const place = (p: SelPoint) => {
+    if (!p.el.isConnected) return null;
+    const now = p.el.textContent ?? "";
+    if (now === p.text) return null; // untouched: the browser kept the caret there itself
+    return pointIn(p.el, mapOffset(p.text, now, p.off));
+  };
+  const a = place(saved.anchor);
+  const f = place(saved.focus);
+  if (!a && !f) return;
+  const anchorPt = a ?? (saved.anchor.el.isConnected ? pointIn(saved.anchor.el, saved.anchor.off) : null);
+  const focusPt = f ?? (saved.focus.el.isConnected ? pointIn(saved.focus.el, saved.focus.off) : null);
+  if (!anchorPt || !focusPt) return;
+  sel.setBaseAndExtent(anchorPt.node, anchorPt.offset, focusPt.node, focusPt.offset);
+}
+
 /** Marks stretches of the text with the browser's highlight feature (no change to the text itself). */
 function setHighlight(name: string, ranges: Range[]) {
   const reg = (CSS as unknown as { highlights?: { set(k: string, v: unknown): void; delete(k: string): void } })
@@ -254,6 +334,13 @@ export function GroupWriter(props: Props) {
   /** This browser's up-to-date copy of the paragraphs (updated at once when typing, merged with the server's). */
   const modelRef = useRef<Run[]>([]);
   const dirty = useRef<Set<string>>(new Set());
+  /** Last version of each paragraph known to be on the server: the common starting point for merging. */
+  const baseRef = useRef<Map<string, Segment[]>>(new Map());
+  /** Paragraphs whose save is running right now. */
+  const inflightRef = useRef<Set<string>>(new Set());
+  /** A server update that arrived while an input method (accents, Asian languages) was composing. */
+  const pendingSnapRef = useRef<QuerySnapshot | null>(null);
+  const applySnapRef = useRef<(snap: QuerySnapshot) => void>(() => {});
   const pendingCreates = useRef<Set<string>>(new Set());
   const pendingDeletes = useRef<Set<string>>(new Set());
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -280,19 +367,13 @@ export function GroupWriter(props: Props) {
     if (!root) return;
     if (!root.firstElementChild) root.appendChild(blankLine());
     const list = modelRef.current;
-
-    // The paragraph the typist's caret is in is never rewritten from outside.
-    let activeEl: Node | null = null;
-    const sel = window.getSelection();
-    if (document.activeElement === root && sel && sel.rangeCount > 0 && root.contains(sel.anchorNode)) {
-      activeEl = sel.anchorNode;
-      while (activeEl && activeEl.parentNode !== root) activeEl = activeEl.parentNode;
-    }
+    const saved = captureSelection(root);
 
     if (list.length === 0) {
-      // Everything was deleted elsewhere: drop stale paragraphs (but not the one being typed in).
+      // Everything was deleted elsewhere: drop stale paragraphs (the one being typed in stays, as a blank line).
+      const keep = saved ? saved.focus.el : null;
       Array.from(root.children).forEach((c) => {
-        if ((c as HTMLElement).dataset.run && c !== activeEl) root.removeChild(c);
+        if ((c as HTMLElement).dataset.run && c !== keep) root.removeChild(c);
       });
       if (!root.firstElementChild) root.appendChild(blankLine());
     } else {
@@ -310,10 +391,13 @@ export function GroupWriter(props: Props) {
         }
         const at = root.children[k] ?? null;
         if (at !== el) root.insertBefore(el, at);
-        if (el !== activeEl) syncElement(el, r.segments);
+        // Every paragraph is brought up to date, also the one the caret is in: otherwise a change made by
+        // someone else never shows up there and this browser and the server drift apart.
+        syncElement(el, r.segments);
       });
       while (root.children.length > list.length) root.removeChild(root.lastElementChild as Element);
     }
+    restoreSelection(saved);
     refreshHighlights();
   }
 
@@ -331,10 +415,50 @@ export function GroupWriter(props: Props) {
     setHighlight("cw-pending", c ? [rangeFor(root, c.start, c.end)] : []);
   }
 
+  /** Takes in the paragraphs the server just sent and merges them with what this browser has. */
+  function applySnapshot(snap: QuerySnapshot) {
+    const modelById = new Map(modelRef.current.map((r) => [r.id, r]));
+    const own = new Set<string>(); // echoes of this browser's own writes that the server has not confirmed yet
+    const remote: Run[] = snap.docs.map((d) => {
+      const mine = modelById.get(d.id);
+      if (editable && mine && d.metadata.hasPendingWrites) {
+        own.add(d.id);
+        return mine;
+      }
+      return toRun(d.id, d.data() as RunDoc);
+    });
+    const merged = editable
+      ? mergeRemote(
+          modelRef.current,
+          remote,
+          dirty.current,
+          pendingCreates.current,
+          pendingDeletes.current,
+          baseRef.current,
+          inflightRef.current
+        )
+      : remote;
+    if (editable) {
+      remote.forEach((r) => {
+        if (!own.has(r.id) && !inflightRef.current.has(r.id)) baseRef.current.set(r.id, r.segments);
+      });
+    }
+    modelRef.current = merged;
+    loadedRef.current = true;
+    setRuns(merged);
+    setLoaded(true);
+    setLoadError(false);
+    if (editable) syncDom();
+  }
+  applySnapRef.current = applySnapshot;
+
   /* ----- listen to the group's paragraphs ----- */
 
   useEffect(() => {
     modelRef.current = [];
+    baseRef.current = new Map();
+    inflightRef.current = new Set();
+    pendingSnapRef.current = null;
     loadedRef.current = false;
     setLoaded(false);
     setLoadError(false);
@@ -346,16 +470,9 @@ export function GroupWriter(props: Props) {
     const unsub = onSnapshot(
       q,
       (snap) => {
-        const remote = snap.docs.map((d) => toRun(d.id, d.data() as RunDoc));
-        const merged = editable
-          ? mergeRemote(modelRef.current, remote, dirty.current, pendingCreates.current, pendingDeletes.current)
-          : remote;
-        modelRef.current = merged;
-        loadedRef.current = true;
-        setRuns(merged);
-        setLoaded(true);
-        setLoadError(false);
-        if (editable) syncDom();
+        // While someone is composing a character with an input method, rewriting the text would break it: wait.
+        if (editable && imeRef.current) pendingSnapRef.current = snap;
+        else applySnapRef.current(snap);
       },
       (err) => {
         console.error(err);
@@ -448,23 +565,62 @@ export function GroupWriter(props: Props) {
 
   /* ----- saving ----- */
 
-  function scheduleSave(id: string) {
+  function scheduleSave(id: string, delay = 400) {
     if (timers.current[id]) clearTimeout(timers.current[id]);
-    timers.current[id] = setTimeout(async () => {
+    timers.current[id] = setTimeout(() => {
       delete timers.current[id];
-      const run = modelRef.current.find((r) => r.id === id);
       dirty.current.delete(id);
-      if (!run) return;
-      try {
-        await setDoc(doc(runsCol(), id), runData(run), { merge: true });
-        setSavedAt(new Date());
-        setSaveError(false);
-      } catch (err) {
-        console.error(err);
-        dirty.current.add(id);
-        setSaveError(true);
-      }
-    }, 400);
+      void saveRun(id);
+    }, delay);
+  }
+
+  /**
+   * Saves one paragraph. The server's current version is read first: if someone else changed the
+   * paragraph in the meantime, their change and ours are merged instead of one overwriting the other.
+   */
+  async function saveRun(id: string) {
+    const run = modelRef.current.find((r) => r.id === id);
+    if (!run) return;
+    const ref = doc(runsCol(), id);
+    const startedWith = run.segments;
+    let result: Segment[] = startedWith;
+    inflightRef.current.add(id);
+    try {
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        result = startedWith;
+        if (snap.exists()) {
+          const server = runSegments(snap.data() as RunDoc);
+          if (sameSegs(server, startedWith)) return; // already saved: nothing to write
+          const base = baseRef.current.get(id) ?? server;
+          result = sameSegs(server, base) ? startedWith : mergeSegments(base, startedWith, server);
+        }
+        tx.set(ref, runData({ ...run, segments: result }), { merge: true });
+      });
+      baseRef.current.set(id, result);
+      setSavedAt(new Date());
+      setSaveError(false);
+    } catch (err) {
+      console.error(err);
+      inflightRef.current.delete(id);
+      dirty.current.add(id);
+      setSaveError(true);
+      scheduleSave(id, 4000); // try again shortly
+      return;
+    }
+    inflightRef.current.delete(id);
+
+    // If the save pulled in someone else's changes, or the typist kept typing meanwhile, bring the screen in line.
+    const cur = modelRef.current.find((r) => r.id === id);
+    if (!cur || sameSegs(result, startedWith)) return;
+    const next = sameSegs(cur.segments, startedWith) ? result : mergeSegments(startedWith, cur.segments, result);
+    modelRef.current = modelRef.current.map((r) => (r.id === id ? withSegments(r, next) : r));
+    setRuns(modelRef.current);
+    syncDom();
+    if (!sameSegs(next, result)) {
+      dirty.current.add(id);
+      scheduleSave(id);
+    }
   }
 
   function writeStructure(plan: Plan) {
@@ -476,6 +632,7 @@ export function GroupWriter(props: Props) {
       const run = modelRef.current.find((r) => r.id === pr.id);
       if (!run) return;
       batch.set(doc(runsCol(), pr.id), runData(run), { merge: true });
+      baseRef.current.set(pr.id, pr.segments);
       if (timers.current[pr.id]) clearTimeout(timers.current[pr.id]);
       delete timers.current[pr.id];
       dirty.current.delete(pr.id);
@@ -486,6 +643,7 @@ export function GroupWriter(props: Props) {
     });
     plan.deletes.forEach((id) => {
       batch.delete(doc(runsCol(), id));
+      baseRef.current.delete(id);
       pendingDeletes.current.add(id);
       if (timers.current[id]) clearTimeout(timers.current[id]);
       delete timers.current[id];
@@ -642,6 +800,11 @@ export function GroupWriter(props: Props) {
           onCompositionEnd={() => {
             imeRef.current = false;
             handleInput();
+            const waiting = pendingSnapRef.current;
+            if (waiting) {
+              pendingSnapRef.current = null;
+              applySnapRef.current(waiting);
+            }
           }}
           onPaste={onPaste}
           onDrop={(e) => e.preventDefault()}

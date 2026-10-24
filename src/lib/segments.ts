@@ -46,6 +46,64 @@ export function splitAt(segs: Segment[], offset: number): [Segment[], Segment[]]
   return [normalize(before), normalize(after)];
 }
 
+/** True if both paragraphs have the same text written by the same people. */
+export function sameSegs(a: Segment[], b: Segment[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((s, i) => s.studentId === b[i].studentId && s.text === b[i].text);
+}
+
+/** "Base text from `start` to `end` was replaced by `insert`." */
+interface Change {
+  start: number;
+  end: number;
+  insert: Segment[];
+}
+
+/** The single stretch that differs between two versions of a paragraph, or null if the text is the same. */
+function changeBetween(base: Segment[], next: Segment[]): Change | null {
+  const b = segmentsText(base);
+  const n = segmentsText(next);
+  if (b === n) return null;
+  const max = Math.min(b.length, n.length);
+  let head = 0;
+  while (head < max && b[head] === n[head]) head++;
+  let tail = 0;
+  while (tail < max - head && b[b.length - 1 - tail] === n[n.length - 1 - tail]) tail++;
+  const [, fromHead] = splitAt(next, head);
+  const [insert] = splitAt(fromHead, n.length - head - tail);
+  return { start: head, end: b.length - tail, insert };
+}
+
+/**
+ * Three-way merge of one paragraph. `base` is the version both people started from, `local` is what
+ * this browser has now, `remote` is what the server has now. If the two changes are in different
+ * places, both are kept (with authorship). If they overlap, the local version wins.
+ */
+export function mergeSegments(base: Segment[], local: Segment[], remote: Segment[]): Segment[] {
+  if (sameSegs(local, remote)) return local;
+  const lc = changeBetween(base, local);
+  const rc = changeBetween(base, remote);
+  if (!rc) return local;
+  if (!lc) return remote;
+
+  const bothInsertAtSamePoint = rc.start === rc.end && lc.start === lc.end && rc.start === lc.start;
+  let first: Change;
+  let second: Change;
+  if (!bothInsertAtSamePoint && rc.end <= lc.start) {
+    first = rc;
+    second = lc;
+  } else if (!bothInsertAtSamePoint && lc.end <= rc.start) {
+    first = lc;
+    second = rc;
+  } else {
+    return local;
+  }
+  const [pre] = splitAt(base, first.start);
+  const [mid] = splitAt(splitAt(base, first.end)[1], second.start - first.end);
+  const [, post] = splitAt(base, second.end);
+  return normalize([...pre, ...first.insert, ...mid, ...second.insert, ...post]);
+}
+
 /**
  * Works out what the typist just did (deleted some text and/or inserted some) by
  * comparing the old paragraph text with the new one, then applies it to the segments:

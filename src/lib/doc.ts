@@ -1,4 +1,4 @@
-import { applyEdit, normalize, segmentsText } from "./segments";
+import { applyEdit, mergeSegments, normalize, segmentsText } from "./segments";
 import type { Author } from "./segments";
 import type { Segment } from "./types";
 
@@ -118,6 +118,13 @@ export function planChanges(old: RunLike[], next: Segment[][], newId: () => stri
   return { runs, deletes: oldMid.slice(m).map((r) => r.id) };
 }
 
+/** A copy of the paragraph with new segments (and its plain `text`, if it has one, kept in line). */
+export function withSegments<T extends RunLike>(r: T, segments: Segment[]): T {
+  const out = { ...r, segments } as T & { text?: string };
+  if ("text" in out) out.text = segmentsText(segments);
+  return out;
+}
+
 /**
  * Combines the paragraphs just received from the server with what this browser knows locally.
  * Paragraphs with unsent edits keep the local version; paragraphs just created here stay even if
@@ -128,13 +135,26 @@ export function mergeRemote<T extends RunLike>(
   remote: T[],
   dirty: Set<string>,
   pendingCreates: Set<string>,
-  pendingDeletes: Set<string>
+  pendingDeletes: Set<string>,
+  /** The last version of each paragraph this browser knew the server to have (the common starting point). */
+  base: Map<string, Segment[]> = new Map(),
+  /** Paragraphs being saved right now: left alone, the save reconciles them when it finishes. */
+  inflight: Set<string> = new Set()
 ): T[] {
   const localById = new Map(local.map((r) => [r.id, r]));
   const remoteIds = new Set(remote.map((r) => r.id));
   const out: T[] = remote
     .filter((r) => !pendingDeletes.has(r.id))
-    .map((r) => (dirty.has(r.id) && localById.has(r.id) ? (localById.get(r.id) as T) : r));
+    .map((r) => {
+      const l = localById.get(r.id);
+      if (!l) return r;
+      if (inflight.has(r.id)) return l;
+      if (!dirty.has(r.id)) return r;
+      // Unsent local typing: combine it with what someone else changed, instead of one overwriting the other.
+      const b = base.get(r.id);
+      if (!b) return l;
+      return withSegments(r, mergeSegments(b, l.segments, r.segments));
+    });
   local.forEach((r) => {
     if (pendingCreates.has(r.id) && !remoteIds.has(r.id)) out.push(r);
   });
