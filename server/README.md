@@ -13,7 +13,7 @@ Technikum's own server. It has **no outside dependencies**: it uses only what sh
 | Queries (`where`, `orderBy`) | `query.mjs` |
 | WebSocket implementation | `websocket.mjs` |
 | Teacher accounts, requests, import, passwords | `accounts.mjs` |
-| Who may read/write what | `rules.mjs` (**placeholder: allows everything**) |
+| Who may read/write what | `rules.mjs` (port of `firestore.rules`) |
 | Tests | `test/` |
 
 The browser side is in `src/backend/local/`: small replacements for `firebase/firestore`,
@@ -24,7 +24,7 @@ in, so no screen had to change. The normal build (Vercel) is unaffected.
 
 - [x] Stage 1: database, live updates, transactions, anonymous student identity, tests
 - [x] Stage 2a: teacher accounts (request access, approval, Excel/CSV import, password links)
-- [ ] Stage 2b: the access rules from `firestore.rules` into `rules.mjs` (**until then, do not use for real classes**)
+- [x] Stage 2b: the access rules from `firestore.rules` in `rules.mjs` (keep both files in step; tests in `test/rules.test.mjs`)
 - [ ] Stage 3: Dockerfile and automatic image build
 - [ ] Stage 4: handover pack for IT (brief, settings, runbook)
 

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createBackend } from "../app.mjs";
+import { allowAll } from "../rules.mjs";
 import { Store } from "../store.mjs";
 import { runQuery, parseSpec } from "../query.mjs";
 
@@ -58,7 +59,7 @@ test("query: where, orderBy, ties by id, missing fields", () => {
 /* ---------- the server, talked to like a browser would ---------- */
 
 async function start() {
-  const backend = createBackend({ dataFile: ":memory:", secret: "test-secret" });
+  const backend = createBackend({ dataFile: ":memory:", secret: "test-secret", rules: allowAll });
   const port = await backend.listen(0, "127.0.0.1");
   return { backend, port };
 }

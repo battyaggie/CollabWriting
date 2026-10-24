@@ -4,7 +4,7 @@ import { Store, splitPath, checkDocPath, checkCollPath } from "./store.mjs";
 import { StoreError } from "./errors.mjs";
 import { parseSpec, runQuery } from "./query.mjs";
 import { attachWebSocket } from "./websocket.mjs";
-import { allowAll } from "./rules.mjs";
+import { firestoreRules } from "./rules.mjs";
 import { Accounts, RateLimiter } from "./accounts.mjs";
 
 /**
@@ -27,7 +27,7 @@ import { Accounts, RateLimiter } from "./accounts.mjs";
 export function createBackend({
   dataFile,
   secret,
-  rules = allowAll,
+  rules = firestoreRules,
   nextHandler = null,
   log = () => {},
   adminEmails = [],

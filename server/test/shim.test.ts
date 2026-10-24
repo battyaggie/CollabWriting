@@ -3,8 +3,9 @@
 import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createBackend } from "../app.mjs";
+import { allowAll } from "../rules.mjs";
 
-const backend = createBackend({ dataFile: ":memory:", secret: "t" });
+const backend = createBackend({ dataFile: ":memory:", secret: "t", rules: allowAll });
 let port = 0;
 const store = new Map<string, string>();
 

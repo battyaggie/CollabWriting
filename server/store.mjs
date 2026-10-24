@@ -32,7 +32,7 @@ export function checkCollPath(path) {
 const isPlain = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 
 /** Like Firestore's set(..., {merge: true}): objects are merged key by key, everything else is replaced. */
-function deepMerge(base, patch) {
+export function deepMerge(base, patch) {
   const out = { ...base };
   for (const [k, v] of Object.entries(patch)) {
     out[k] = isPlain(v) && isPlain(out[k]) ? deepMerge(out[k], v) : v;
@@ -41,7 +41,7 @@ function deepMerge(base, patch) {
 }
 
 /** update(): top-level keys replace; a key like "a.b" changes only that nested field. */
-function applyUpdate(base, patch) {
+export function applyUpdate(base, patch) {
   const out = structuredClone(base);
   for (const [k, v] of Object.entries(patch)) {
     const parts = k.split(".");

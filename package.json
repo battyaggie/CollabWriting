@@ -9,7 +9,7 @@
     "lint": "next lint",
     "build:local": "BACKEND=local next build",
     "start:local": "node server/index.mjs",
-    "test:server": "node --test server/test/server.test.mjs",
+    "test:server": "node --test server/test/server.test.mjs server/test/accounts.test.mjs server/test/rules.test.mjs",
     "test:shim": "tsx --test server/test/shim.test.ts"
   },
   "dependencies": {
