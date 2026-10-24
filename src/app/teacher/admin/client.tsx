@@ -191,7 +191,10 @@ export default function AdminPage() {
                     <button
                       className="tw-btn tw-btn-primary"
                       disabled={busy}
-                      onClick={() => run(async () => setLinks((l) => [{ ...(await adminApprove(r.id)) }, ...l]))}
+                      onClick={() => run(async () => {
+                        const link = await adminApprove(r.id);
+                        setLinks((l) => [link, ...l]);
+                      })}
                     >
                       Approve
                     </button>
@@ -290,7 +293,10 @@ export default function AdminPage() {
                     <button
                       className="text-tw-blue underline"
                       disabled={busy}
-                      onClick={() => run(async () => setLinks((l) => [{ ...(await adminReset(u.uid)) }, ...l]))}
+                      onClick={() => run(async () => {
+                        const link = await adminReset(u.uid);
+                        setLinks((l) => [link, ...l]);
+                      })}
                     >
                       New password link
                     </button>
