@@ -17,3 +17,9 @@ out
 .DS_Store
 *.tsbuildinfo
 npm-debug.log*
+
+# container version: the database lives here
+data
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
