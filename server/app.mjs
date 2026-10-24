@@ -5,6 +5,7 @@ import { StoreError } from "./errors.mjs";
 import { parseSpec, runQuery } from "./query.mjs";
 import { attachWebSocket } from "./websocket.mjs";
 import { allowAll } from "./rules.mjs";
+import { Accounts, RateLimiter } from "./accounts.mjs";
 
 /**
  * The whole backend in one object: HTTP (health check + the Next.js pages), one WebSocket per
@@ -23,8 +24,20 @@ import { allowAll } from "./rules.mjs";
  * A write is applied, every affected live query is re-sent, and only THEN is the writer answered,
  * so a browser always sees the effect of its own write before the confirmation of it.
  */
-export function createBackend({ dataFile, secret, rules = allowAll, nextHandler = null, log = () => {} }) {
+export function createBackend({
+  dataFile,
+  secret,
+  rules = allowAll,
+  nextHandler = null,
+  log = () => {},
+  adminEmails = [],
+  trustProxy = false,
+  now = () => Date.now(),
+}) {
   const store = new Store(dataFile);
+  const accounts = new Accounts(store, now);
+  const limiter = new RateLimiter(now);
+  const adminSetups = accounts.bootstrapAdmins(adminEmails);
 
   let key = secret || store.getMeta("secret");
   if (!key) {
@@ -32,18 +45,34 @@ export function createBackend({ dataFile, secret, rules = allowAll, nextHandler 
     store.setMeta("secret", key);
   }
 
-  const mac = (uid) => createHmac("sha256", key).update(uid).digest("base64url");
-  const signToken = (uid) => `${uid}.${mac(uid)}`;
+  // A sign-in token is "uid.expiry.signature". Students keep theirs for a year, teachers for 30 days.
+  const mac = (text) => createHmac("sha256", key).update(text).digest("base64url");
+  const STUDENT_TOKEN_MS = 365 * 86400_000;
+  const TEACHER_TOKEN_MS = 30 * 86400_000;
+  const signToken = (uid, ttl) => {
+    const body = `${uid}.${now() + ttl}`;
+    return `${body}.${mac(body)}`;
+  };
   function uidFromToken(token) {
     if (typeof token !== "string") return null;
     const i = token.lastIndexOf(".");
     if (i < 1) return null;
-    const uid = token.slice(0, i);
+    const body = token.slice(0, i);
     const given = Buffer.from(token.slice(i + 1));
-    const want = Buffer.from(mac(uid));
-    return given.length === want.length && timingSafeEqual(given, want) ? uid : null;
+    const want = Buffer.from(mac(body));
+    if (given.length !== want.length || !timingSafeEqual(given, want)) return null;
+    const j = body.lastIndexOf(".");
+    if (j < 1 || Number(body.slice(j + 1)) < now()) return null;
+    return body.slice(0, j);
   }
-  const userFor = (uid) => ({ uid, email: null, isAnonymous: true });
+  /** Teachers are looked up; any other (validly signed) uid is an anonymous student. A switched-off teacher is nobody. */
+  function userFor(uid) {
+    const row = accounts.getUser(uid);
+    if (row) return Accounts.publicUser(row);
+    if (accounts.db.prepare("SELECT 1 FROM users WHERE uid = ?").get(uid)) return null;
+    return { uid, email: null, isAnonymous: true, isAdmin: false };
+  }
+  const tokenTtl = (user) => (user.isAnonymous ? STUDENT_TOKEN_MS : TEACHER_TOKEN_MS);
 
   const server = createServer((req, res) => {
     const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
@@ -92,7 +121,11 @@ export function createBackend({ dataFile, secret, rules = allowAll, nextHandler 
     }
   }
 
-  function handle(c, text) {
+  function requireAdmin(c) {
+    if (!c.user?.isAdmin) throw new StoreError("permission-denied", "Administrators only.");
+  }
+
+  async function handle(c, text) {
     let m;
     try {
       m = JSON.parse(text);
@@ -114,15 +147,63 @@ export function createBackend({ dataFile, secret, rules = allowAll, nextHandler 
         case "anon": {
           const uid = randomBytes(14).toString("hex");
           c.user = userFor(uid);
-          return reply({ user: c.user, token: signToken(uid) });
+          return reply({ user: c.user, token: signToken(uid, STUDENT_TOKEN_MS) });
         }
         case "signout": {
           c.user = null;
           return reply();
         }
         case "signup":
-        case "login":
-          throw new StoreError("auth/operation-not-allowed", "Teacher accounts are not available in this build yet.");
+          throw new StoreError(
+            "auth/operation-not-allowed",
+            "Accounts are created by an administrator. Please use \"Request access\"."
+          );
+        case "login": {
+          const email = String(m.email ?? "").trim().toLowerCase();
+          if (!limiter.allow(`login:${email}`, 10, 15 * 60_000) || !limiter.allow(`login-ip:${c.ip}`, 60, 15 * 60_000)) {
+            throw new StoreError("auth/too-many-requests", "Too many attempts. Please wait a few minutes.");
+          }
+          const row = await accounts.login(m.email, m.password);
+          c.user = Accounts.publicUser(row);
+          return reply({ user: c.user, token: signToken(row.uid, TEACHER_TOKEN_MS) });
+        }
+        case "access-request": {
+          if (!limiter.allow(`request-ip:${c.ip}`, 5, 3600_000)) {
+            throw new StoreError("auth/too-many-requests", "Too many requests from this address. Please try again later.");
+          }
+          const r = accounts.createRequest(m.email, m.name);
+          if (r.created) log(`Access requested by ${r.email}${r.name ? ` (${r.name})` : ""}`);
+          return reply(); // the same answer whatever happened, so the form reveals nothing about existing accounts
+        }
+        case "set-password": {
+          if (!limiter.allow(`setpw-ip:${c.ip}`, 20, 3600_000)) {
+            throw new StoreError("auth/too-many-requests", "Too many attempts. Please try again later.");
+          }
+          const row = await accounts.completeSetup(m.token, m.password);
+          c.user = Accounts.publicUser(row);
+          return reply({ user: c.user, token: signToken(row.uid, TEACHER_TOKEN_MS) });
+        }
+        case "admin-overview":
+          requireAdmin(c);
+          return reply({ requests: accounts.listRequests(), users: accounts.listUsers() });
+        case "admin-approve":
+          requireAdmin(c);
+          return reply(accounts.approve(String(m.id)));
+        case "admin-reject":
+          requireAdmin(c);
+          accounts.reject(String(m.id));
+          return reply();
+        case "admin-import":
+          requireAdmin(c);
+          return reply({ rows: accounts.importPeople(m.people) });
+        case "admin-reset":
+          requireAdmin(c);
+          return reply(accounts.resetPassword(String(m.uid)));
+        case "admin-disable":
+          requireAdmin(c);
+          if (m.uid === c.user.uid) throw new StoreError("invalid-argument", "You cannot switch off your own account.");
+          accounts.setDisabled(String(m.uid), !!m.disabled);
+          return reply();
         case "sub": {
           const sid = String(m.sid);
           try {
@@ -177,10 +258,13 @@ export function createBackend({ dataFile, secret, rules = allowAll, nextHandler 
 
   attachWebSocket(server, {
     path: "/ws",
-    onConnection(ws) {
-      const c = { ws, user: null, subs: new Map() };
+    onConnection(ws, req) {
+      const forwarded = trustProxy ? String(req.headers["x-forwarded-for"] ?? "").split(",")[0].trim() : "";
+      const c = { ws, user: null, subs: new Map(), ip: forwarded || req.socket.remoteAddress || "unknown" };
       clients.add(c);
-      ws.on("message", (text) => handle(c, text));
+      ws.on("message", (text) => {
+        handle(c, text).catch((err) => log("error", err));
+      });
       ws.on("close", () => clients.delete(c));
     },
   });
@@ -188,6 +272,8 @@ export function createBackend({ dataFile, secret, rules = allowAll, nextHandler 
   return {
     server,
     store,
+    accounts,
+    adminSetups,
     listen(port, host = "0.0.0.0") {
       return new Promise((resolve, reject) => {
         server.once("error", reject);

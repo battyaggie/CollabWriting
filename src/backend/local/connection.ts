@@ -18,6 +18,9 @@ export interface UserInfo {
   uid: string;
   email: string | null;
   isAnonymous: boolean;
+  name?: string;
+  /** Administrators approve teacher accounts. */
+  isAdmin?: boolean;
 }
 
 export class LocalBackendError extends Error {

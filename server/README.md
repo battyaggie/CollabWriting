@@ -12,6 +12,7 @@ Technikum's own server. It has **no outside dependencies**: it uses only what sh
 | Database (one SQLite file) | `store.mjs` |
 | Queries (`where`, `orderBy`) | `query.mjs` |
 | WebSocket implementation | `websocket.mjs` |
+| Teacher accounts, requests, import, passwords | `accounts.mjs` |
 | Who may read/write what | `rules.mjs` (**placeholder: allows everything**) |
 | Tests | `test/` |
 
@@ -22,7 +23,8 @@ in, so no screen had to change. The normal build (Vercel) is unaffected.
 ## Status
 
 - [x] Stage 1: database, live updates, transactions, anonymous student identity, tests
-- [ ] Stage 2: teacher accounts and the access rules from `firestore.rules` (**until then, do not use for real classes**)
+- [x] Stage 2a: teacher accounts (request access, approval, Excel/CSV import, password links)
+- [ ] Stage 2b: the access rules from `firestore.rules` into `rules.mjs` (**until then, do not use for real classes**)
 - [ ] Stage 3: Dockerfile and automatic image build
 - [ ] Stage 4: handover pack for IT (brief, settings, runbook)
 
@@ -33,6 +35,8 @@ in, so no screen had to change. The normal build (Vercel) is unaffected.
 | `PORT` | port to listen on | `3000` |
 | `DATA_DIR` | folder for the database file (back this up) | `./data` |
 | `SESSION_SECRET` | secret for sign-in tokens; if unset, one is generated and stored in the database | generated |
+| `ADMIN_EMAIL` | administrator email(s), comma-separated; they approve teachers. On first start the log shows a one-time link to choose their password | none |
+| `TRUST_PROXY` | `1` if behind a reverse proxy that sets `X-Forwarded-For` (for rate limits) | off |
 
 ## Try it without Docker
 
@@ -48,7 +52,12 @@ npm run start:local        # http://localhost:3000
 
 Requests carry a number `rid` and are answered by `{t:"res", rid, ok, ...}`.
 
-- `hello {token?}` who am I; `anon` new anonymous student; `signout`; `signup` / `login` (stage 2)
+- `hello {token?}` who am I; `anon` new anonymous student; `signout`; `login {email,password}`; `signup` is refused
+- `access-request {email,name}`; `set-password {token,password}` (one-time link)
+- admin only: `admin-overview`, `admin-approve {id}`, `admin-reject {id}`, `admin-import {people}`, `admin-reset {uid}`, `admin-disable {uid,disabled}`
+
+The server cannot send email (no outbound connections). Setup links are shown to the administrator, who
+sends them by mail draft or mail merge. Automatic mail would need an SMTP relay from IT.
 - `sub {sid, kind:"doc"|"query", path, where?, order?}` live results, pushed as `snap {sid, doc | docs}`; `unsub {sid}`
 - `get {kind, path, where?, order?}` one-off read
 - `commit {writes:[{op:"set"|"update"|"delete", path, data?, merge?}], reads?:{path:version}}` all-or-nothing;

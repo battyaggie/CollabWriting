@@ -4,6 +4,8 @@
 //   PORT            port to listen on                      (default 3000)
 //   DATA_DIR        folder for the database file           (default ./data; /data in the container)
 //   SESSION_SECRET  secret for sign-in tokens; if unset, one is generated and kept in the database
+//   ADMIN_EMAIL    email address(es) of the administrator(s), comma-separated; they approve teacher access
+//   TRUST_PROXY=1  the server sits behind a reverse proxy that sets X-Forwarded-For (used for rate limits)
 //   NO_NEXT=1       only run the backend (used by the tests)
 import { join } from "node:path";
 import { createBackend } from "./app.mjs";
@@ -25,7 +27,13 @@ const backend = createBackend({
   secret: process.env.SESSION_SECRET || undefined,
   nextHandler,
   log,
+  adminEmails: (process.env.ADMIN_EMAIL ?? "").split(",").map((e) => e.trim()).filter(Boolean),
+  trustProxy: process.env.TRUST_PROXY === "1",
 });
+for (const a of backend.adminSetups) {
+  log(`Administrator ${a.email} has no password yet. Open  <address of this server>/teacher/set-password?token=${a.setupToken}  (valid 7 days)`);
+}
+if (!process.env.ADMIN_EMAIL) log("Warning: ADMIN_EMAIL is not set, so nobody can approve teacher accounts.");
 const actual = await backend.listen(port);
 log(`Collaborative Writing listening on port ${actual}, data in ${dataDir}`);
 

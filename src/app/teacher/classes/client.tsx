@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
+import { isLocalBackend } from "@/lib/backend";
 import { DeletePanel } from "@/components/DeletePanel";
 import { deleteCourse, deleteExercise } from "@/lib/deleteClass";
 import type { ClassDoc, CourseDoc } from "@/lib/types";
@@ -20,6 +21,7 @@ const STATUS_LABEL: Record<ClassDoc["status"], { label: string; color: string }>
 export default function MyClassesPage() {
   const router = useRouter();
   const [uid, setUid] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [classes, setClasses] = useState<(ClassDoc & { id: string })[]>([]);
   const [courses, setCourses] = useState<(CourseDoc & { id: string })[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -32,6 +34,7 @@ export default function MyClassesPage() {
         return;
       }
       setUid(user.uid);
+      setIsAdmin(!!(user as unknown as { isAdmin?: boolean }).isAdmin);
     });
     return () => unsub();
   }, [router]);
@@ -90,9 +93,16 @@ export default function MyClassesPage() {
             <span className="font-display text-xs tracking-wide text-tw-blue">TECHNIKUM WIEN</span>
             <h1 className="font-display text-2xl text-tw-navy m-0">My Classes</h1>
           </div>
-          <button className="text-sm text-tw-grey underline" onClick={() => signOut(auth)}>
-            Sign out
-          </button>
+          <div className="flex items-center gap-5">
+            {isLocalBackend && isAdmin && (
+              <Link href="/teacher/admin" className="text-sm text-tw-blue underline">
+                Teacher accounts
+              </Link>
+            )}
+            <button className="text-sm text-tw-grey underline" onClick={() => signOut(auth)}>
+              Sign out
+            </button>
+          </div>
         </div>
 
         <Link href="/teacher/courses/new" className="tw-btn tw-btn-primary self-start">

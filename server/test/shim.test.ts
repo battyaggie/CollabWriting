@@ -64,7 +64,8 @@ test("sign in anonymously, and the identity is remembered", async () => {
   await waitFor(() => seen.length === 2);
   assert.equal(seen[1], user.uid);
   stop();
-  await assert.rejects(() => auth.signInWithEmailAndPassword(a, "t@example.org", "pw"), { code: "auth/operation-not-allowed" });
+  await assert.rejects(() => auth.signInWithEmailAndPassword(a, "t@example.org", "pw"), { code: "auth/invalid-credential" });
+  await assert.rejects(() => auth.createUserWithEmailAndPassword(a, "t@example.org", "password12345"), { code: "auth/operation-not-allowed" });
 });
 
 test("documents: set, get, update, merge, delete, add", async () => {

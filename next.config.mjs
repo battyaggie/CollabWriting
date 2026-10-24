@@ -9,6 +9,7 @@ const useLocalBackend = process.env.BACKEND === "local";
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  env: { NEXT_PUBLIC_BACKEND: useLocalBackend ? "local" : "firebase" },
   webpack(config) {
     if (useLocalBackend) {
       const local = (file) => path.resolve(process.cwd(), "src/backend/local", file);
