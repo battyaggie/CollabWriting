@@ -1,0 +1,55 @@
+name: Container image
+
+on:
+  push:
+    branches: [container-backend]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install --no-audit --no-fund
+      - run: npm run test:server
+      - run: npm run test:shim
+      - run: npx tsx --test server/test/import.test.ts
+
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t collab-writing:ci .
+      - name: Start it and check it works
+        run: |
+          docker run -d --name cw -p 3000:3000 -e ADMIN_EMAIL=admin@example.org collab-writing:ci
+          for i in $(seq 1 40); do curl -fs http://127.0.0.1:3000/healthz && break || sleep 2; done
+          node server/test/smoke.mjs http://127.0.0.1:3000 || { docker logs cw; exit 1; }
+          docker logs cw | grep -q "set-password?token=" || { docker logs cw; echo "administrator link missing from log"; exit 1; }
+          docker rm -f cw
+      - name: Save the image as a file for IT
+        run: |
+          docker save collab-writing:ci | gzip > collab-writing-image.tar.gz
+          ls -lh collab-writing-image.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: collab-writing-image
+          path: collab-writing-image.tar.gz
+          retention-days: 30
+      - name: Publish to the GitHub container registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          repo=$(echo "ghcr.io/${{ github.repository }}" | tr 'A-Z' 'a-z')
+          docker tag collab-writing:ci "$repo:${{ github.sha }}"
+          docker tag collab-writing:ci "$repo:${GITHUB_REF_NAME//\//-}"
+          docker push --all-tags "$repo"
