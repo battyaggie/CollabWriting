@@ -3,8 +3,13 @@ name: Container image
 on:
   push:
     branches: [container-backend]
-    tags: ["v*"]
+    tags: ["v*", "V*"]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Attach the image to this existing release tag (e.g. V1.0.0). Leave empty for a normal test build."
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -64,14 +69,16 @@ jobs:
           docker tag collab-writing:ci "$repo:${{ github.sha }}"
           docker tag collab-writing:ci "$repo:${GITHUB_REF_NAME//\//-}"
           docker push --all-tags "$repo"
-      - name: Attach the image to the release of this version tag (version tags only)
-        if: github.ref_type == 'tag'
+      - name: Attach the image to the release of this version tag
+        if: github.ref_type == 'tag' || inputs.release_tag != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
           # If the release was made by hand on GitHub it already exists; otherwise create it.
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" \
-            --title "Collaborative Writing App $GITHUB_REF_NAME (container version)" \
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" \
+            --title "Collaborative Writing App $TAG (container version)" \
             --notes "Container image for hosting at FH Technikum Wien. Load it with: docker load < collab-writing-image.tar.gz. See the handover folder in the repository for the brief, runbook, security and data-protection notes." \
             --prerelease
-          gh release upload "$GITHUB_REF_NAME" collab-writing-image.tar.gz --clobber
+          gh release upload "$TAG" collab-writing-image.tar.gz --clobber
