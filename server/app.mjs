@@ -133,6 +133,8 @@ export function createBackend({
       return c.ws.close(1003);
     }
     if (m === null || typeof m !== "object") return c.ws.close(1003);
+    // A teacher is checked again on every message, so switching an account off takes effect at once.
+    if (c.user && !c.user.isAnonymous) c.user = userFor(c.user.uid);
     const send = (o) => c.ws.send(JSON.stringify(o));
     const reply = (extra = {}) => send({ t: "res", rid: m.rid, ok: true, ...extra });
     const fail = (err) => send({ t: "res", rid: m.rid, ok: false, code: err.code, message: err.message });

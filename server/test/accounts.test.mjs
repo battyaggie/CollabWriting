@@ -201,3 +201,21 @@ test("import a list of people: accounts and links for new ones, existing ones le
   [admin, lecturer, dan].forEach((x) => x.close());
   await backend.close();
 });
+
+test("switching an account off signs out its open connections at once", async () => {
+  const { backend, port } = await start();
+  const admin = await browser(port);
+  await admin.ask({ t: "set-password", token: backend.adminSetups[0].setupToken, password: "admin-password-123" });
+  const created = (await admin.ask({ t: "admin-import", people: [{ name: "Lee", email: "lee@example.org" }] })).rows[0];
+  const lecturer = await browser(port);
+  const me = (await lecturer.ask({ t: "set-password", token: created.token, password: "lecturer-password-1" })).user;
+  const write = { t: "commit", writes: [{ op: "set", path: "courses/k1", data: { teacherId: me.uid } }] };
+  assert.equal((await lecturer.ask({ ...write })).ok, true);
+  assert.equal((await admin.ask({ t: "admin-disable", uid: me.uid, disabled: true })).ok, true);
+  const after = await lecturer.ask({ t: "commit", writes: [{ op: "delete", path: "courses/k1" }] });
+  assert.equal(after.ok, false);
+  assert.equal(after.code, "permission-denied");
+  admin.close();
+  lecturer.close();
+  await backend.close();
+});

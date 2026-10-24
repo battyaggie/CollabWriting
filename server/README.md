@@ -36,6 +36,7 @@ in, so no screen had to change. The normal build (Vercel) is unaffected.
 | `DATA_DIR` | folder for the database file (back this up) | `./data` |
 | `SESSION_SECRET` | secret for sign-in tokens; if unset, one is generated and stored in the database | generated |
 | `ADMIN_EMAIL` | administrator email(s), comma-separated; they approve teachers. On first start the log shows a one-time link to choose their password | none |
+| `BACKUP_DIR` / `BACKUP_KEEP` / `BACKUP_EVERY_HOURS` | where daily backups go / how many to keep / hours between them (`0` = off) | `<DATA_DIR>/backups` / `14` / `24` |
 | `TRUST_PROXY` | `1` if behind a reverse proxy that sets `X-Forwarded-For` (for rate limits) | off |
 
 ## Try it without Docker
