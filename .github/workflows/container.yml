@@ -26,6 +26,9 @@ jobs:
   image:
     needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # to attach the image to a release when a version tag is pushed
+      packages: write
     steps:
       - uses: actions/checkout@v4
       - name: Build image
@@ -61,3 +64,12 @@ jobs:
           docker tag collab-writing:ci "$repo:${{ github.sha }}"
           docker tag collab-writing:ci "$repo:${GITHUB_REF_NAME//\//-}"
           docker push --all-tags "$repo"
+      - name: Attach the image to a release (version tags only)
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" collab-writing-image.tar.gz \
+            --title "Collaborative Writing App $GITHUB_REF_NAME (container version)" \
+            --notes "Container image for hosting at FH Technikum Wien. Load it with: docker load < collab-writing-image.tar.gz. See the handover folder in the repository for the brief, runbook, security and data-protection notes." \
+            --prerelease
