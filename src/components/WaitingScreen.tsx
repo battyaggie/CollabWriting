@@ -39,6 +39,8 @@ function Step({ state, children }: { state: "done" | "active" | "todo"; children
 /** Shown after joining, until the teacher has formed the groups and started the session. */
 export function WaitingScreen({ classData, alias, colorIndex, roster, groupName, groupMates }: Props) {
   const hasGroup = !!groupName;
+  // Joined after the exercise had already started (or came back on a new device): the other groups are writing.
+  const lateJoin = !hasGroup && classData.status === "live";
   return (
     <div className="min-h-screen flex items-center justify-center bg-tw-bg px-6 py-10">
       <div className="w-full max-w-[520px] bg-white border border-tw-grey-light rounded-2xl p-10 flex flex-col gap-6" aria-live="polite">
@@ -60,9 +62,15 @@ export function WaitingScreen({ classData, alias, colorIndex, roster, groupName,
         <ol className="list-none p-0 m-0 flex flex-col gap-3">
           <Step state="done">You have joined the class</Step>
           <Step state={hasGroup ? "done" : "active"}>
-            {hasGroup ? `Your teacher has put you in ${groupName}` : "Your teacher is forming the groups"}
+            {hasGroup
+              ? `Your teacher has put you in ${groupName}`
+              : lateJoin
+                ? "The writing task has already started. Your teacher is putting you in a group"
+                : "Your teacher is forming the groups"}
           </Step>
-          <Step state={hasGroup ? "active" : "todo"}>Your teacher starts the writing task</Step>
+          <Step state={hasGroup ? "active" : "todo"}>
+            {lateJoin ? "You join your group’s writing" : "Your teacher starts the writing task"}
+          </Step>
         </ol>
 
         {hasGroup && (
@@ -76,8 +84,8 @@ export function WaitingScreen({ classData, alias, colorIndex, roster, groupName,
         )}
 
         <p className="text-sm text-tw-grey m-0">
-          Keep this page open &mdash; the writing page appears here by itself when your teacher starts. You don&rsquo;t
-          need to refresh.
+          Keep this page open &mdash; the writing page appears here by itself when your teacher{" "}
+          {lateJoin ? "puts you in a group" : "starts"}. You don&rsquo;t need to refresh.
         </p>
 
         {!hasGroup && (

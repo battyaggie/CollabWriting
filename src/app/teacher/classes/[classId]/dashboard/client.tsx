@@ -11,6 +11,12 @@ import type { ClassDoc, GroupDoc, StudentDoc } from "@/lib/types";
 type GroupRow = GroupDoc & { id: string };
 type StudentRow = StudentDoc & { id: string };
 
+/** Special values of the "put in group" menus. */
+const NEW_GROUP = "__new__";
+const NO_GROUP = "__none__";
+
+const selectClass = "text-sm text-tw-navy border border-tw-grey-light rounded-md px-2 py-1.5 bg-white";
+
 export default function TeacherDashboardPage() {
   const { classId } = useParams<{ classId: string }>();
   const [classData, setClassData] = useState<(ClassDoc & { id: string }) | null>(null);
@@ -21,6 +27,9 @@ export default function TeacherDashboardPage() {
   const [mutual, setMutual] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [confirmClose, setConfirmClose] = useState(false);
+  const [groupsLoaded, setGroupsLoaded] = useState(false);
+  const [studentsLoaded, setStudentsLoaded] = useState(false);
+  const [placeMessage, setPlaceMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, "classes", classId), (snap) => {
@@ -32,6 +41,7 @@ export default function TeacherDashboardPage() {
   useEffect(() => {
     const unsub = onSnapshot(query(collection(db, "classes", classId, "groups"), orderBy("createdAt", "asc")), (snap) => {
       setGroups(snap.docs.map((d) => ({ id: d.id, ...(d.data() as GroupDoc) })));
+      setGroupsLoaded(true);
     });
     return () => unsub();
   }, [classId]);
@@ -39,6 +49,7 @@ export default function TeacherDashboardPage() {
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "classes", classId, "students"), (snap) => {
       setStudents(snap.docs.map((d) => ({ id: d.id, ...(d.data() as StudentDoc) })));
+      setStudentsLoaded(true);
     });
     return () => unsub();
   }, [classId]);
@@ -52,6 +63,14 @@ export default function TeacherDashboardPage() {
     return map;
   }, [groups, students]);
 
+  /** Students who are in the class but not in any group (late joiners, people who reconnected as a new device). */
+  const unassigned = useMemo(() => {
+    if (!groupsLoaded || !studentsLoaded) return [];
+    return students
+      .filter((s) => !s.groupId || !groups.some((g) => g.id === s.groupId))
+      .sort((a, b) => a.joinedAt - b.joinedAt);
+  }, [groups, students, groupsLoaded, studentsLoaded]);
+
   async function project(groupId: string) {
     await updateDoc(doc(db, "classes", classId), { hotSeatGroupId: groupId });
   }
@@ -62,6 +81,71 @@ export default function TeacherDashboardPage() {
   }
 
   const groupName = (id: string | null | undefined) => groups.find((g) => g.id === id)?.name ?? "—";
+
+  /** Id and name for a brand-new group, numbered after the highest existing one. */
+  function nextGroup() {
+    const nums = groups
+      .map((g) => parseInt(g.id.replace(/^group-/, ""), 10))
+      .filter((n) => !Number.isNaN(n));
+    const n = Math.max(0, groups.length, ...nums) + 1;
+    return { id: `group-${n}`, name: `Group ${n}` };
+  }
+
+  /**
+   * Puts one student into a group (or takes them out of it, or into a brand-new group).
+   * Only that student's own record changes, so the other groups keep working undisturbed;
+   * the student's screen switches to the writing page by itself.
+   */
+  async function assignStudent(studentId: string, target: string) {
+    if (!target) return;
+    const student = students.find((s) => s.id === studentId);
+    const studentRef = doc(db, "classes", classId, "students", studentId);
+    try {
+      if (target === NEW_GROUP) {
+        const g = nextGroup();
+        const batch = writeBatch(db);
+        batch.set(doc(db, "classes", classId, "groups", g.id), {
+          name: g.name,
+          memberIds: [],
+          createdAt: Date.now(),
+        } as GroupDoc);
+        batch.update(studentRef, { groupId: g.id });
+        await batch.commit();
+        setPlaceMessage(`${student?.alias ?? "Student"} is now in the new ${g.name}.`);
+      } else if (target === NO_GROUP) {
+        await updateDoc(studentRef, { groupId: null });
+        setPlaceMessage(`${student?.alias ?? "Student"} is no longer in a group.`);
+      } else {
+        await updateDoc(studentRef, { groupId: target });
+        setPlaceMessage(`${student?.alias ?? "Student"} is now in ${groupName(target)}.`);
+      }
+    } catch (err) {
+      console.error(err);
+      setPlaceMessage("That didn't work. Please try again.");
+    }
+  }
+
+  /** Everyone who is waiting goes into whichever group is currently the smallest. */
+  async function placeAllInSmallest() {
+    if (groups.length === 0 || unassigned.length === 0) return;
+    const counts = new Map(groups.map((g) => [g.id, (membersByGroup.get(g.id) ?? []).length]));
+    const batch = writeBatch(db);
+    unassigned.forEach((s) => {
+      let best = groups[0].id;
+      groups.forEach((g) => {
+        if (counts.get(g.id)! < counts.get(best)!) best = g.id;
+      });
+      counts.set(best, counts.get(best)! + 1);
+      batch.update(doc(db, "classes", classId, "students", s.id), { groupId: best });
+    });
+    try {
+      await batch.commit();
+      setPlaceMessage(`${unassigned.length} ${unassigned.length === 1 ? "student was" : "students were"} added to the smallest groups.`);
+    } catch (err) {
+      console.error(err);
+      setPlaceMessage("That didn't work. Please try again.");
+    }
+  }
 
   /** Keeps a copy of the original text of every group that is about to be reviewed (only the first time). */
   async function saveOriginals(groupIds: string[]) {
@@ -195,6 +279,60 @@ export default function TeacherDashboardPage() {
           </button>
         )}
 
+        {classData.status !== "completed" && unassigned.length > 0 && (
+          <div
+            className="bg-[#FDF3E1] border border-[#E9C46A] rounded-xl p-6 flex flex-col gap-4"
+            role="status"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="font-display text-base text-tw-navy m-0">
+                  Not in a group yet ({unassigned.length})
+                </h2>
+                <p className="text-sm text-tw-grey mt-1 mb-0">
+                  These students joined late or came back on a new device. They are waiting on their screen: as soon
+                  as you choose a group, their writing page opens by itself. The other groups are not disturbed.
+                </p>
+              </div>
+              <button
+                className="tw-btn tw-btn-secondary whitespace-nowrap"
+                disabled={groups.length === 0}
+                onClick={placeAllInSmallest}
+              >
+                Add all to the smallest groups
+              </button>
+            </div>
+            <div className="flex flex-col gap-2">
+              {unassigned.map((s) => (
+                <div key={s.id} className="flex items-center justify-between gap-3">
+                  <span className="flex items-center gap-2 text-sm text-tw-navy">
+                    <span
+                      className="w-2.5 h-2.5 rounded-full inline-block"
+                      style={{ background: colorFor(s.colorIndex) }}
+                    />
+                    {s.alias}
+                  </span>
+                  <select
+                    className={selectClass}
+                    value=""
+                    aria-label={`Put ${s.alias} in a group`}
+                    onChange={(e) => assignStudent(s.id, e.target.value)}
+                  >
+                    <option value="">Put in a group&hellip;</option>
+                    {groups.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name} ({(membersByGroup.get(g.id) ?? []).length})
+                      </option>
+                    ))}
+                    <option value={NEW_GROUP}>+ New group</option>
+                  </select>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {placeMessage && <p className="text-sm text-tw-green m-0">{placeMessage}</p>}
+
         <div className="bg-white border border-tw-grey-light rounded-xl p-6 flex flex-col gap-4">
           <div>
             <h2 className="font-display text-base text-tw-navy m-0">Groups give each other feedback</h2>
@@ -254,15 +392,35 @@ export default function TeacherDashboardPage() {
                     <span className="bg-tw-green text-white text-xs font-bold rounded-full px-3 py-1">LIVE</span>
                   )}
                 </div>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-col gap-1.5">
+                  {members.length === 0 && <span className="text-xs text-tw-grey italic">No students in this group</span>}
                   {members.map((m) => (
-                    <span key={m.id} className="flex items-center gap-1.5 text-xs text-tw-navy">
-                      <span
-                        className="w-2 h-2 rounded-full inline-block"
-                        style={{ background: colorFor(m.colorIndex) }}
-                      />
-                      {m.alias}
-                    </span>
+                    <div key={m.id} className="flex items-center justify-between gap-3">
+                      <span className="flex items-center gap-1.5 text-xs text-tw-navy">
+                        <span
+                          className="w-2 h-2 rounded-full inline-block"
+                          style={{ background: colorFor(m.colorIndex) }}
+                        />
+                        {m.alias}
+                      </span>
+                      <select
+                        className="text-xs text-tw-grey border border-tw-grey-light rounded-md px-1.5 py-1 bg-white"
+                        value=""
+                        aria-label={`Move ${m.alias} to another group`}
+                        onChange={(e) => assignStudent(m.id, e.target.value)}
+                      >
+                        <option value="">Move&hellip;</option>
+                        {groups
+                          .filter((o) => o.id !== g.id)
+                          .map((o) => (
+                            <option key={o.id} value={o.id}>
+                              to {o.name}
+                            </option>
+                          ))}
+                        <option value={NEW_GROUP}>to a new group</option>
+                        <option value={NO_GROUP}>out of the group</option>
+                      </select>
+                    </div>
                   ))}
                 </div>
                 <div className="text-xs text-tw-grey flex flex-col gap-0.5">
