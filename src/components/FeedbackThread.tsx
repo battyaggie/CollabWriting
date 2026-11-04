@@ -109,6 +109,7 @@ export function CommentComposer({ classId, groupId, studentId, alias, colorIndex
         />
       </div>
       {failed && <p className="m-0 text-sm text-[#C1440E]">The comment could not be saved. Please try again.</p>}
+      <p className="text-xs text-tw-grey m-0">One comment per click: post each piece of feedback separately.</p>
       <div className="flex items-center gap-2">
         <button type="button" className="tw-btn tw-btn-primary" onClick={post} disabled={!draft.trim() || busy}>
           Post comment
@@ -191,6 +192,10 @@ export function FeedbackThread({ classId, groupId, studentId, alias, colorIndex,
               </span>
             )}
           </div>
+          <p className="text-xs text-tw-grey m-0">
+            Write only <strong>one</strong> piece of feedback in the box, then click &ldquo;Post Feedback&rdquo;. Post
+            each piece of feedback separately, with its own click, before you write the next one.
+          </p>
           <button type="button" className="tw-btn tw-btn-primary" onClick={post} disabled={!draft.trim()}>
             Post Feedback
           </button>
