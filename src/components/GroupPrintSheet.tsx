@@ -1,4 +1,4 @@
-import { colorFor } from "@/lib/colors";
+import { colorFor, isTeacherColor } from "@/lib/colors";
 import { runSegments } from "@/lib/segments";
 import type { ClassDoc, FeedbackDoc, GroupDoc, RunDoc } from "@/lib/types";
 
@@ -63,7 +63,13 @@ export function GroupPrintSheet({ classData, group, allRuns, feedback, memberIds
                   {p.alias}
                 </td>
                 {memberIds && (
-                  <td className="py-0.5 text-tw-grey">{p.writer ? "Writer in this group" : "Reviewer from another group"}</td>
+                  <td className="py-0.5 text-tw-grey">
+                    {isTeacherColor(p.colorIndex)
+                      ? "Teacher"
+                      : p.writer
+                        ? "Writer in this group"
+                        : "Reviewer from another group"}
+                  </td>
                 )}
               </tr>
             ))}
@@ -99,7 +105,7 @@ export function GroupPrintSheet({ classData, group, allRuns, feedback, memberIds
             Text with the reviewers&rsquo; corrections
           </h2>
           <p className="text-xs text-tw-grey mt-0 mb-3">
-            Corrections appear in the colour of the reviewer who made them. Words they deleted are no longer
+            Corrections appear in the colour of the reviewer who made them (the teacher is always red). Words they deleted are no longer
             shown here &mdash; see the original above.
           </p>
         </>

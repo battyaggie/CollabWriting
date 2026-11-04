@@ -441,6 +441,12 @@ export default function TeacherDashboardPage() {
                   </span>
                 </div>
                 <div className="flex items-center gap-3 mt-auto pt-3 border-t border-tw-border">
+                  <a
+                    href={`/teacher/classes/${classId}/groups/${g.id}`}
+                    className="text-sm font-bold text-tw-blue no-underline"
+                  >
+                    Give feedback
+                  </a>
                   <button
                     className={`text-sm ${isHot ? "font-bold text-tw-green" : "text-tw-blue"}`}
                     onClick={() => project(g.id)}

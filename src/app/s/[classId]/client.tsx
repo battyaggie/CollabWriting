@@ -7,7 +7,7 @@ import { db } from "@/lib/firebase";
 import { GroupWriter } from "@/components/GroupWriter";
 import { WaitingScreen } from "@/components/WaitingScreen";
 import { CommentComposer, FeedbackThread, anchorsOf, useFeedbackEntries } from "@/components/FeedbackThread";
-import { colorFor } from "@/lib/colors";
+import { colorFor, isTeacherColor } from "@/lib/colors";
 import type { ClassDoc, CourseDoc, GroupDoc, StudentDoc, StudentSession } from "@/lib/types";
 
 export default function StudentClassPage() {
@@ -24,7 +24,9 @@ export default function StudentClassPage() {
   const ownGroupId = student?.groupId ?? null;
   const reviewsId = ownGroupId ? groups[ownGroupId]?.reviewsGroupId ?? null : null;
   // Comments on highlighted words: marked in the text of the group they are about.
-  const ownAnchors = anchorsOf(useFeedbackEntries(classId, ownGroupId));
+  const ownEntries = useFeedbackEntries(classId, ownGroupId);
+  const ownAnchors = anchorsOf(ownEntries);
+  const hasTeacherComments = ownEntries.some((e) => isTeacherColor(e.colorIndex));
   const reviewAnchors = anchorsOf(useFeedbackEntries(classId, reviewsId));
 
   useEffect(() => {
@@ -196,6 +198,25 @@ export default function StudentClassPage() {
             anchors={ownAnchors}
             readOnly={closed}
           />
+        )}
+
+        {tab === "write" && hasTeacherComments && (
+          <div className="bg-white border border-tw-grey-light rounded-xl p-8">
+            <h2 className="font-display text-lg text-tw-navy mt-0 mb-1">Comments from your teacher</h2>
+            <p className="text-sm text-tw-grey mt-0 mb-5">
+              Your teacher&rsquo;s corrections in your text and these comments are shown in red. Comments about
+              particular words are highlighted in your text.
+            </p>
+            <FeedbackThread
+              classId={classId}
+              groupId={student.groupId}
+              studentId={session.studentId}
+              alias={session.alias}
+              colorIndex={student.colorIndex}
+              teacherOnly
+              readOnly
+            />
+          </div>
         )}
 
         {tab === "feedback" && reviewsId && (

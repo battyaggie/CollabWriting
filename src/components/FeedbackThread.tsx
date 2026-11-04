@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { addDoc, collection, onSnapshot, orderBy, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { colorFor } from "@/lib/colors";
+import { colorFor, isTeacherColor } from "@/lib/colors";
 import type { Anchor } from "@/lib/doc";
 import type { FeedbackDoc } from "@/lib/types";
 
@@ -15,6 +15,8 @@ interface Props {
   colorIndex?: number;
   /** hide the composer (used on the projector view) */
   readOnly?: boolean;
+  /** show only the teacher's comments (used next to the group's own writing) */
+  teacherOnly?: boolean;
 }
 
 export type FeedbackEntry = FeedbackDoc & { id: string };
@@ -120,8 +122,9 @@ export function CommentComposer({ classId, groupId, studentId, alias, colorIndex
   );
 }
 
-export function FeedbackThread({ classId, groupId, studentId, alias, colorIndex, readOnly }: Props) {
-  const entries = useFeedbackEntries(classId, groupId);
+export function FeedbackThread({ classId, groupId, studentId, alias, colorIndex, readOnly, teacherOnly }: Props) {
+  const all = useFeedbackEntries(classId, groupId);
+  const entries = teacherOnly ? all.filter((e) => isTeacherColor(e.colorIndex)) : all;
   const [draft, setDraft] = useState("");
   const [savedAt, setSavedAt] = useState<Date | null>(null);
 
@@ -141,7 +144,11 @@ export function FeedbackThread({ classId, groupId, studentId, alias, colorIndex,
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-0">
-        {entries.length === 0 && <p className="text-sm text-tw-grey italic">No feedback yet.</p>}
+        {entries.length === 0 && (
+          <p className="text-sm text-tw-grey italic">
+            {teacherOnly ? "No comments from your teacher yet." : "No feedback yet."}
+          </p>
+        )}
         {entries.map((entry, i) => (
           <div
             key={entry.id}
@@ -152,7 +159,12 @@ export function FeedbackThread({ classId, groupId, studentId, alias, colorIndex,
                 className="w-3.5 h-3.5 rounded-full inline-block"
                 style={{ background: colorFor(entry.colorIndex) }}
               />
-              <span className="font-bold text-sm text-tw-navy">{entry.alias}</span>
+              <span
+                className="font-bold text-sm text-tw-navy"
+                style={{ color: isTeacherColor(entry.colorIndex) ? colorFor(entry.colorIndex) : undefined }}
+              >
+                {entry.alias}
+              </span>
             </div>
             {entry.quote && <QuotedText quote={entry.quote} />}
             <p className="m-0 text-[15px] leading-relaxed">{entry.text}</p>
