@@ -747,6 +747,9 @@ export function GroupWriter(props: Props) {
 
   /* ----- rendering ----- */
 
+  // Words in the whole group text (everything anyone has written, in all paragraphs).
+  const wordCount = runs.reduce((n, r) => n + (segmentsText(r.segments).match(/\S+/g)?.length ?? 0), 0);
+
   if (readOnly) {
     return (
       <div className="bg-white border border-tw-grey-light rounded-xl p-6 text-[17px] leading-[1.7]">
@@ -766,7 +769,10 @@ export function GroupWriter(props: Props) {
           Click anywhere in the box and type &mdash; it&rsquo;s shared, like a Word document. Press Enter for a new
           line; leave an empty line for a new paragraph.
         </span>
-        <span className="flex items-center gap-2 whitespace-nowrap">
+        <span className="flex items-center gap-3 whitespace-nowrap">
+          <span className="font-bold text-tw-navy" aria-live="polite">
+            {wordCount} {wordCount === 1 ? "word" : "words"}
+          </span>
           {saveError ? (
             <span className="text-[#C1440E]">Not saved &mdash; check your connection</span>
           ) : (
