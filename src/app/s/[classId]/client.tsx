@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { collection, doc, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { GroupWriter } from "@/components/GroupWriter";
+import { ColorPicker } from "@/components/ColorPicker";
 import { WaitingScreen } from "@/components/WaitingScreen";
 import { CommentComposer, FeedbackThread, anchorsOf, useFeedbackEntries } from "@/components/FeedbackThread";
 import { colorFor, isTeacherColor } from "@/lib/colors";
@@ -102,6 +103,8 @@ export default function StudentClassPage() {
       : [];
     return (
       <WaitingScreen
+        classId={classId}
+        studentId={session.studentId}
         classData={classData}
         alias={session.alias}
         colorIndex={student.colorIndex}
@@ -150,6 +153,16 @@ export default function StudentClassPage() {
             />
             <span className="text-sm">{session.alias}</span>
           </span>
+        </div>
+
+        <div className="bg-white border border-tw-grey-light rounded-xl px-5 py-3">
+          <ColorPicker
+            classId={classId}
+            studentId={session.studentId}
+            colorIndex={student.colorIndex}
+            roster={roster}
+            disabled={closed}
+          />
         </div>
 
         <div className="flex gap-2">

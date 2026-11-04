@@ -1,8 +1,11 @@
 import { RosterChips } from "@/components/RosterChips";
+import { ColorPicker } from "@/components/ColorPicker";
 import { colorFor } from "@/lib/colors";
 import type { ClassDoc, StudentDoc } from "@/lib/types";
 
 interface Props {
+  classId: string;
+  studentId: string;
   classData: ClassDoc;
   alias: string;
   colorIndex: number;
@@ -37,7 +40,7 @@ function Step({ state, children }: { state: "done" | "active" | "todo"; children
 }
 
 /** Shown after joining, until the teacher has formed the groups and started the session. */
-export function WaitingScreen({ classData, alias, colorIndex, roster, groupName, groupMates }: Props) {
+export function WaitingScreen({ classId, studentId, classData, alias, colorIndex, roster, groupName, groupMates }: Props) {
   const hasGroup = !!groupName;
   // Joined after the exercise had already started (or came back on a new device): the other groups are writing.
   const lateJoin = !hasGroup && classData.status === "live";
@@ -52,11 +55,14 @@ export function WaitingScreen({ classData, alias, colorIndex, roster, groupName,
           </p>
         </div>
 
-        <div className="flex items-center gap-3 bg-tw-bg rounded-xl px-4 py-3">
-          <span className="w-4 h-4 rounded-full inline-block flex-none" style={{ background: colorFor(colorIndex) }} />
-          <span className="text-sm text-tw-navy">
-            Your colour. Everything you write in the group text will appear in this colour.
-          </span>
+        <div className="flex flex-col gap-3 bg-tw-bg rounded-xl px-4 py-3">
+          <div className="flex items-center gap-3">
+            <span className="w-4 h-4 rounded-full inline-block flex-none" style={{ background: colorFor(colorIndex) }} />
+            <span className="text-sm text-tw-navy">
+              Your colour. Everything you write in the group text will appear in this colour.
+            </span>
+          </div>
+          <ColorPicker classId={classId} studentId={studentId} colorIndex={colorIndex} roster={roster} />
         </div>
 
         <ol className="list-none p-0 m-0 flex flex-col gap-3">
