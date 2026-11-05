@@ -5,7 +5,7 @@ import { addDoc, collection, onSnapshot, orderBy, query } from "firebase/firesto
 import { db } from "@/lib/firebase";
 import { colorFor, isTeacherColor } from "@/lib/colors";
 import type { Anchor } from "@/lib/doc";
-import type { FeedbackDoc } from "@/lib/types";
+import type { FeedbackDoc, FeedbackKind } from "@/lib/types";
 
 interface Props {
   classId: string;
@@ -17,6 +17,8 @@ interface Props {
   readOnly?: boolean;
   /** show only the teacher's comments (used next to the group's own writing) */
   teacherOnly?: boolean;
+  /** stamped on every comment posted here, and used to show only that kind (peer also shows older, untagged entries) */
+  kind?: FeedbackKind;
 }
 
 export type FeedbackEntry = FeedbackDoc & { id: string };
@@ -60,10 +62,11 @@ interface ComposerProps {
   colorIndex: number;
   selection: Anchor;
   onDone: () => void;
+  kind?: FeedbackKind;
 }
 
 /** The small box that opens next to highlighted text: write a comment about exactly that part. */
-export function CommentComposer({ classId, groupId, studentId, alias, colorIndex, selection, onDone }: ComposerProps) {
+export function CommentComposer({ classId, groupId, studentId, alias, colorIndex, selection, onDone, kind }: ComposerProps) {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -84,6 +87,7 @@ export function CommentComposer({ classId, groupId, studentId, alias, colorIndex
         colorIndex,
         text: draft.trim(),
         createdAt: Date.now(),
+        ...(kind ? { kind } : {}),
         quote: selection.quote,
         start: selection.start,
         end: selection.end,
@@ -123,9 +127,10 @@ export function CommentComposer({ classId, groupId, studentId, alias, colorIndex
   );
 }
 
-export function FeedbackThread({ classId, groupId, studentId, alias, colorIndex, readOnly, teacherOnly }: Props) {
+export function FeedbackThread({ classId, groupId, studentId, alias, colorIndex, readOnly, teacherOnly, kind }: Props) {
   const all = useFeedbackEntries(classId, groupId);
-  const entries = teacherOnly ? all.filter((e) => isTeacherColor(e.colorIndex)) : all;
+  const ofKind = kind ? all.filter((e) => (kind === "hotseat" ? e.kind === "hotseat" : e.kind !== "hotseat")) : all;
+  const entries = teacherOnly ? ofKind.filter((e) => isTeacherColor(e.colorIndex)) : ofKind;
   const [draft, setDraft] = useState("");
   const [savedAt, setSavedAt] = useState<Date | null>(null);
 
@@ -137,6 +142,7 @@ export function FeedbackThread({ classId, groupId, studentId, alias, colorIndex,
       colorIndex: colorIndex ?? 0,
       text: draft.trim(),
       createdAt: Date.now(),
+      ...(kind ? { kind } : {}),
     } as FeedbackDoc);
     setDraft("");
     setSavedAt(new Date());

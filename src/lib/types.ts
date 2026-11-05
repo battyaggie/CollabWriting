@@ -75,12 +75,17 @@ export interface RunDoc {
   updatedAt: number;
 }
 
+/** Where a piece of feedback came from: the assigned group review, or the whole-class hot seat. Missing on older entries. */
+export type FeedbackKind = "peer" | "hotseat";
+
 export interface FeedbackDoc {
   studentId: string;
   alias: string;
   colorIndex: number;
   text: string;
   createdAt: number;
+  /** "peer" = feedback to the assigned group, "hotseat" = feedback to the group on the projector. Missing on older entries. */
+  kind?: FeedbackKind;
   /** Set when the comment is about a highlighted part of the text: the highlighted words... */
   quote?: string;
   /** ...and where they were in the text (character positions) when the comment was made. */
