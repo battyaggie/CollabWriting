@@ -8,7 +8,7 @@ export function normalize(segs: Segment[]): Segment[] {
   for (const s of segs) {
     if (!s.text) continue;
     const last = out[out.length - 1];
-    if (last && last.studentId === s.studentId) {
+    if (last && last.studentId === s.studentId && !!last.struck === !!s.struck) {
       out[out.length - 1] = { ...last, text: last.text + s.text };
     } else {
       out.push({ ...s });
@@ -49,7 +49,7 @@ export function splitAt(segs: Segment[], offset: number): [Segment[], Segment[]]
 /** True if both paragraphs have the same text written by the same people. */
 export function sameSegs(a: Segment[], b: Segment[]): boolean {
   if (a.length !== b.length) return false;
-  return a.every((s, i) => s.studentId === b[i].studentId && s.text === b[i].text);
+  return a.every((s, i) => s.studentId === b[i].studentId && s.text === b[i].text && !!s.struck === !!b[i].struck);
 }
 
 /** "Base text from `start` to `end` was replaced by `insert`." */
@@ -105,17 +105,42 @@ export function mergeSegments(base: Segment[], local: Segment[], remote: Segment
 }
 
 /**
+ * What a reviewer's deletion leaves behind: other people's words stay in the text, struck through (still in their
+ * author's colour), so the writers can see what was there. The reviewer's own words are really removed, and words that
+ * are already struck through stay as they are. Line breaks are not kept (paragraphs simply join).
+ */
+function strikeRemoved(removed: Segment[], authorId: string): Segment[] {
+  const out: Segment[] = [];
+  for (const s of removed) {
+    if (s.studentId === authorId && !s.struck) continue;
+    const text = s.text.split("\n").join("");
+    if (text) out.push({ ...s, text, struck: true });
+  }
+  return normalize(out);
+}
+
+export interface EditResult {
+  segs: Segment[];
+  /** Where (in the new text) the words kept as struck-through start, and how many characters they are. */
+  keptAt: number;
+  keptLen: number;
+  /** How many characters were typed or pasted in this edit. */
+  insertedLen: number;
+}
+
+/**
  * Works out what the typist just did (deleted some text and/or inserted some) by
  * comparing the old paragraph text with the new one, then applies it to the segments:
- * removed characters disappear, inserted characters belong to `author`.
+ * inserted characters belong to `author`; removed characters disappear, except when `track` is on (a reviewer
+ * correcting someone else's text): then other people's removed words stay, struck through.
  *
  * `caret` is the caret position after the edit. Typing happens just before the caret,
  * so everything after the caret is unchanged; that pins the edit to the right place
  * even when the same letters repeat ("aaa" + "a").
  */
-export function applyEdit(segs: Segment[], newText: string, caret: number, author: Author): Segment[] {
+export function applyEdit(segs: Segment[], newText: string, caret: number, author: Author, track = false): EditResult {
   const oldText = segmentsText(segs);
-  if (oldText === newText) return segs;
+  if (oldText === newText) return { segs, keptAt: 0, keptLen: 0, insertedLen: 0 };
 
   let tail = newText.length - Math.min(Math.max(caret, 0), newText.length);
   if (tail > oldText.length || !oldText.endsWith(newText.slice(newText.length - tail))) {
@@ -131,8 +156,14 @@ export function applyEdit(segs: Segment[], newText: string, caret: number, autho
   while (head < maxHead && oldText[head] === newText[head]) head++;
 
   const inserted = newText.slice(head, newEnd);
-  const [left] = splitAt(segs, head);
+  const [left, afterHead] = splitAt(segs, head);
   const [, right] = splitAt(segs, oldEnd);
+  const kept = track ? strikeRemoved(splitAt(afterHead, oldEnd - head)[0], author.studentId) : [];
   const middle: Segment[] = inserted ? [{ ...author, text: inserted }] : [];
-  return normalize([...left, ...middle, ...right]);
+  return {
+    segs: normalize([...left, ...kept, ...middle, ...right]),
+    keptAt: head,
+    keptLen: segmentsText(kept).length,
+    insertedLen: inserted.length,
+  };
 }

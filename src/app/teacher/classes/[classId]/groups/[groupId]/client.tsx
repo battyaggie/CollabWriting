@@ -143,6 +143,7 @@ export default function TeacherGroupFeedbackPage() {
                 colorIndex={TEACHER_COLOR_INDEX}
                 anchors={anchorsOf(entries)}
                 readOnly={closed}
+                trackChanges
                 renderCommentBox={(selection, close) => (
                   <CommentComposer
                     classId={classId}

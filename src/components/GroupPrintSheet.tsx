@@ -92,7 +92,7 @@ export function GroupPrintSheet({ classData, group, allRuns, feedback, memberIds
                   <br />
                 ) : (
                   para.segments.map((seg, j) => (
-                    <span key={j} style={{ color: colorFor(seg.colorIndex) }}>
+                    <span key={j} style={{ color: colorFor(seg.colorIndex), ...(seg.struck ? { textDecoration: "line-through" } : {}) }}>
                       {seg.text}
                     </span>
                   ))
@@ -105,8 +105,8 @@ export function GroupPrintSheet({ classData, group, allRuns, feedback, memberIds
             Text with the reviewers&rsquo; corrections
           </h2>
           <p className="text-xs text-tw-grey mt-0 mb-3">
-            Corrections appear in the colour of the reviewer who made them (the teacher is always red). Words they deleted are no longer
-            shown here &mdash; see the original above.
+            Corrections appear in the colour of the reviewer who made them (the teacher is always red). Words that were deleted stay
+            in the text, struck through, in the colour of whoever wrote them.
           </p>
         </>
       ) : (
@@ -120,7 +120,7 @@ export function GroupPrintSheet({ classData, group, allRuns, feedback, memberIds
               <br />
             ) : (
               runSegments(r).map((seg, j) => (
-                <span key={j} style={{ color: colorFor(seg.colorIndex) }}>
+                <span key={j} style={{ color: colorFor(seg.colorIndex), ...(seg.struck ? { textDecoration: "line-through" } : {}) }}>
                   {seg.text}
                 </span>
               ))

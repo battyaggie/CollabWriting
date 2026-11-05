@@ -275,6 +275,7 @@ export default function StudentClassPage() {
                 colorIndex={student.colorIndex}
                 anchors={reviewAnchors}
                 readOnly={closed}
+                trackChanges
                 renderCommentBox={(selection, close) => (
                   <CommentComposer
                     classId={classId}

@@ -60,6 +60,8 @@ export interface Segment {
   alias: string;
   colorIndex: number;
   text: string;
+  /** Set (only ever to true) when the teacher deleted this text: it stays visible, struck through. */
+  struck?: boolean;
 }
 
 export interface RunDoc {
