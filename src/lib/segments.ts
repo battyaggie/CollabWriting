@@ -77,7 +77,7 @@ function changeBetween(base: Segment[], next: Segment[]): Change | null {
 /**
  * Three-way merge of one paragraph. `base` is the version both people started from, `local` is what
  * this browser has now, `remote` is what the server has now. If the two changes are in different
- * places, both are kept (with authorship). If they overlap, the local version wins.
+ * places, both are kept (with authorship); so are two insertions at the same spot. If they overlap otherwise, the local version wins.
  */
 export function mergeSegments(base: Segment[], local: Segment[], remote: Segment[]): Segment[] {
   if (sameSegs(local, remote)) return local;
@@ -86,13 +86,17 @@ export function mergeSegments(base: Segment[], local: Segment[], remote: Segment
   if (!rc) return local;
   if (!lc) return remote;
 
-  const bothInsertAtSamePoint = rc.start === rc.end && lc.start === lc.end && rc.start === lc.start;
+  if (rc.start === rc.end && lc.start === lc.end && rc.start === lc.start) {
+    // Both people added text at exactly the same spot: keep both (the server's first), so nobody's words disappear.
+    const [before, after] = splitAt(base, lc.start);
+    return normalize([...before, ...rc.insert, ...lc.insert, ...after]);
+  }
   let first: Change;
   let second: Change;
-  if (!bothInsertAtSamePoint && rc.end <= lc.start) {
+  if (rc.end <= lc.start) {
     first = rc;
     second = lc;
-  } else if (!bothInsertAtSamePoint && lc.end <= rc.start) {
+  } else if (lc.end <= rc.start) {
     first = lc;
     second = rc;
   } else {
