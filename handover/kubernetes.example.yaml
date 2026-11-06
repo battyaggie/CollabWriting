@@ -1,0 +1,44 @@
+# Example only (not tested on a cluster). Adapt namespace, storage class, ingress and host name.
+# Important: exactly ONE replica, and "Recreate", because the data is a SQLite file.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: collab-writing-data }
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: { requests: { storage: 2Gi } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: collab-writing }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector: { matchLabels: { app: collab-writing } }
+  template:
+    metadata: { labels: { app: collab-writing } }
+    spec:
+      securityContext: { runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000 }
+      containers:
+        - name: app
+          image: registry.example.at/collab-writing:1      # CHANGE: where you pushed the image
+          ports: [{ containerPort: 3000 }]
+          env:
+            - { name: ADMIN_EMAIL, value: "mark.adams@technikum-wien.at" }   # CHANGE
+            - { name: TRUST_PROXY, value: "1" }
+          volumeMounts: [{ name: data, mountPath: /data }]
+          readinessProbe: { httpGet: { path: /healthz, port: 3000 }, periodSeconds: 10 }
+          livenessProbe: { httpGet: { path: /healthz, port: 3000 }, periodSeconds: 30, failureThreshold: 3 }
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: "1", memory: 512Mi }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+      volumes:
+        - { name: data, persistentVolumeClaim: { claimName: collab-writing-data } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: collab-writing }
+spec:
+  selector: { app: collab-writing }
+  ports: [{ port: 80, targetPort: 3000 }]
+# An Ingress must allow WebSocket connections on /ws (most do by default) and use your TLS certificate.

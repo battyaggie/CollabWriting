@@ -1,0 +1,9 @@
+node_modules
+.next
+.git
+.github
+data
+*.sqlite*
+.env*
+*.md
+!server/README.md

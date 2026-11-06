@@ -1,0 +1,84 @@
+name: Container image
+
+on:
+  push:
+    branches: [container-backend]
+    tags: ["v*", "V*"]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Attach the image to this existing release tag (e.g. V1.0.0). Leave empty for a normal test build."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install --no-audit --no-fund
+      - run: npm run test:server
+      - run: npm run test:shim
+      - run: npx tsx --test server/test/import.test.ts
+
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # to attach the image to a release when a version tag is pushed
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t collab-writing:ci .
+      - name: Start it and check it works
+        run: |
+          # same hardening as handover/docker-compose.yml: non-root, read-only, no extra privileges
+          docker volume create cwdata
+          docker run -d --name cw -p 3000:3000 -e ADMIN_EMAIL=admin@example.org -v cwdata:/data \
+            --read-only --tmpfs /tmp --user 1000:1000 --cap-drop ALL --security-opt no-new-privileges:true collab-writing:ci
+          for i in $(seq 1 40); do curl -fs http://127.0.0.1:3000/healthz && break || sleep 2; done
+          node server/test/smoke.mjs http://127.0.0.1:3000 || { docker logs cw; exit 1; }
+          docker logs cw | grep -q "set-password?token=" || { docker logs cw; echo "administrator link missing from log"; exit 1; }
+          docker exec cw sh -c 'ls /data/backups/collab-writing-*.sqlite' || { docker logs cw; echo "no backup written"; exit 1; }
+          # the data survives a restart of the container
+          docker restart cw
+          for i in $(seq 1 40); do curl -fs http://127.0.0.1:3000/healthz && break || sleep 2; done
+          docker logs cw 2>&1 | tail -5
+          docker rm -f cw
+      - name: Save the image as a file for IT
+        run: |
+          docker save collab-writing:ci | gzip > collab-writing-image.tar.gz
+          ls -lh collab-writing-image.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: collab-writing-image
+          path: collab-writing-image.tar.gz
+          retention-days: 30
+      - name: Publish to the GitHub container registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          repo=$(echo "ghcr.io/${{ github.repository }}" | tr 'A-Z' 'a-z')
+          docker tag collab-writing:ci "$repo:${{ github.sha }}"
+          docker tag collab-writing:ci "$repo:${GITHUB_REF_NAME//\//-}"
+          docker push --all-tags "$repo"
+      - name: Attach the image to the release of this version tag
+        if: github.ref_type == 'tag' || inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: |
+          # If the release was made by hand on GitHub it already exists; otherwise create it.
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" \
+            --title "Collaborative Writing App $TAG (container version)" \
+            --notes "Container image for hosting at FH Technikum Wien. Load it with: docker load < collab-writing-image.tar.gz. See the handover folder in the repository for the brief, runbook, security and data-protection notes." \
+            --prerelease
+          gh release upload "$TAG" collab-writing-image.tar.gz --clobber

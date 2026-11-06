@@ -1,0 +1,19 @@
+# Starting point for Docker Compose. Load the image first:  docker load < collab-writing-image.tar.gz
+services:
+  collab-writing:
+    image: collab-writing:ci          # the name printed by "docker load"; use your own tag if you re-tag it
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"         # only the reverse proxy on this host reaches it
+    environment:
+      ADMIN_EMAIL: "mark.adams@technikum-wien.at"   # CHANGE: who approves lecturer accounts
+      TRUST_PROXY: "1"
+    volumes:
+      - collab-data:/data             # database + backups. This is the only thing that must survive updates.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+volumes:
+  collab-data:
