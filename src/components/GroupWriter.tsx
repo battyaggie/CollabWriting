@@ -35,6 +35,11 @@ interface Props {
    * to the selection; call `close` to dismiss it.
    */
   renderCommentBox?: (selection: Anchor, close: () => void) => ReactNode;
+  /**
+   * Reviewing someone else's text (a student on the feedback tab, or the teacher): words deleted from other people's
+   * text stay in the text, struck through, so the writers can see what was changed.
+   */
+  trackChanges?: boolean;
 }
 
 type Run = RunDoc & { id: string; segments: Segment[] };
@@ -167,13 +172,16 @@ function domSig(el: HTMLElement): Sig {
   const parts: Sig = [];
   el.childNodes.forEach((n) => {
     if (n.nodeType === Node.TEXT_NODE) parts.push([null, n.textContent ?? ""]);
-    else if (n instanceof HTMLElement) parts.push([n.dataset.s ?? null, n.textContent ?? ""]);
+    else if (n instanceof HTMLElement) {
+      const who = n.dataset.s;
+      parts.push([who == null ? null : who + (n.dataset.x ? "~" : ""), n.textContent ?? ""]);
+    }
   });
   return mergeSig(parts);
 }
 
 function segSig(segs: Segment[]): Sig {
-  return mergeSig(segs.map((s) => [s.studentId, s.text] as [string, string]));
+  return mergeSig(segs.map((s) => [s.studentId + (s.struck ? "~" : ""), s.text] as [string | null, string]));
 }
 
 /** Rebuilds a paragraph element as one coloured span per author. */
@@ -182,8 +190,13 @@ function renderSegments(el: HTMLElement, segs: Segment[]) {
   for (const seg of segs) {
     const span = document.createElement("span");
     span.dataset.s = seg.studentId;
-    span.title = seg.alias;
+    span.title = seg.struck ? `${seg.alias} (deleted)` : seg.alias;
     span.style.color = colorFor(seg.colorIndex);
+    if (seg.struck) {
+      span.dataset.x = "1";
+      span.style.textDecoration = "line-through";
+      span.style.opacity = "0.75";
+    }
     span.textContent = seg.text;
     el.appendChild(span);
   }
@@ -304,7 +317,14 @@ function ReadOnlyText({ runs, className, emptyClass }: { runs: Run[]; className:
             <br />
           ) : (
             r.segments.map((seg, i) => (
-              <span key={i} style={{ color: colorFor(seg.colorIndex) }} title={seg.alias}>
+              <span
+                key={i}
+                style={{
+                  color: colorFor(seg.colorIndex),
+                  ...(seg.struck ? { textDecoration: "line-through", opacity: 0.75 } : {}),
+                }}
+                title={seg.struck ? `${seg.alias} (deleted)` : seg.alias}
+              >
                 {seg.text}
               </span>
             ))
@@ -318,7 +338,7 @@ function ReadOnlyText({ runs, className, emptyClass }: { runs: Run[]; className:
 /* ---------- the component ---------- */
 
 export function GroupWriter(props: Props) {
-  const { classId, groupId, studentId, alias, colorIndex, projector, readOnly, anchors, renderCommentBox } = props;
+  const { classId, groupId, studentId, alias, colorIndex, projector, readOnly, anchors, renderCommentBox, trackChanges } = props;
   const editable = !projector && !readOnly;
 
   const [runs, setRuns] = useState<Run[]>([]);
@@ -346,6 +366,8 @@ export function GroupWriter(props: Props) {
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const loadedRef = useRef(false);
   const imeRef = useRef(false);
+  /** The kind of the last edit the browser reported ("deleteContentForward", ...), to place the caret after a deletion. */
+  const inputTypeRef = useRef("");
   const bulkRef = useRef(false);
   const selRef = useRef<Anchor | null>(null);
   const composingRef = useRef<(Anchor & { top: number }) | null>(null);
@@ -515,6 +537,7 @@ export function GroupWriter(props: Props) {
     }
     const onBeforeInput = (e: Event) => {
       const t = (e as InputEvent).inputType ?? "";
+      inputTypeRef.current = t;
       if (t.startsWith("format") || t === "insertFromDrop" || t === "deleteByDrag") {
         e.preventDefault();
       } else if (t === "insertLineBreak") {
@@ -679,12 +702,15 @@ export function GroupWriter(props: Props) {
     if (model.length === 0 && texts.length === 1 && texts[0] === "") return;
 
     const author = { studentId, alias, colorIndex };
-    const nextParas = editParagraphs(
+    const edit = editParagraphs(
       model.map((r) => r.segments),
       texts.join("\n"),
       caret,
-      author
+      author,
+      inputTypeRef.current.includes("Forward"),
+      !!trackChanges
     );
+    const nextParas = edit.paras;
     const newId = () => doc(runsCol()).id;
     const plan = planChanges(model, nextParas, newId);
 
@@ -713,7 +739,7 @@ export function GroupWriter(props: Props) {
       div.dataset.run = pr.id;
       if (syncElement(div, pr.segments)) rebuilt = true;
     });
-    if (rebuilt) placeCaret(root, caret);
+    if (rebuilt) placeCaret(root, caret + edit.caretShift);
     refreshHighlights();
 
     const structural = plan.deletes.length > 0 || plan.runs.some((r) => r.kind === "create" || r.orderChanged);
@@ -748,7 +774,10 @@ export function GroupWriter(props: Props) {
   /* ----- rendering ----- */
 
   // Words in the whole group text (everything anyone has written, in all paragraphs).
-  const wordCount = runs.reduce((n, r) => n + (segmentsText(r.segments).match(/\S+/g)?.length ?? 0), 0);
+  const wordCount = runs.reduce(
+    (n, r) => n + (segmentsText(r.segments.filter((sg) => !sg.struck)).match(/\S+/g)?.length ?? 0),
+    0
+  );
 
   if (readOnly) {
     return (

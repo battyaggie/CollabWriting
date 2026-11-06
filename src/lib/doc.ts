@@ -30,17 +30,37 @@ export function splitParagraphs(segs: Segment[]): Segment[][] {
   return paras.map(normalize);
 }
 
-/** Works out the new paragraphs after the box content changed to `newText` (caret = flat offset after the edit). */
-export function editParagraphs(oldParas: Segment[][], newText: string, caret: number, author: Author): Segment[][] {
+/**
+ * Works out the new paragraphs after the box content changed to `newText` (caret = flat offset after the edit).
+ * With `track` on (a reviewer correcting someone else's text), words deleted from other people's text stay, struck
+ * through. `caretShift` says how far the caret has to move because of that (`forward` = the delete key was used, so the
+ * caret goes after them instead of before).
+ */
+export function editParagraphs(
+  oldParas: Segment[][],
+  newText: string,
+  caret: number,
+  author: Author,
+  forward = false,
+  track = false
+): { paras: Segment[][]; caretShift: number } {
   const oldFlat = flatten(oldParas.length ? oldParas : [[]]);
-  let next = applyEdit(oldFlat, newText, caret, author);
-  if (segmentsText(next) !== newText) next = newText ? [{ ...author, text: newText }] : [];
-  return splitParagraphs(next);
+  const r = applyEdit(oldFlat, newText, caret, author, track);
+  let next = r.segs;
+  let caretShift = r.insertedLen > 0 || forward ? r.keptLen : 0;
+  // The text without the words that stayed struck through must be exactly what is in the box.
+  const all = segmentsText(next);
+  const visible = all.slice(0, r.keptAt) + all.slice(r.keptAt + r.keptLen);
+  if (visible !== newText) {
+    next = newText ? [{ ...author, text: newText }] : [];
+    caretShift = 0;
+  }
+  return { paras: splitParagraphs(next), caretShift };
 }
 
 function sameSegments(a: Segment[], b: Segment[]): boolean {
   if (a.length !== b.length) return false;
-  return a.every((s, i) => s.studentId === b[i].studentId && s.text === b[i].text);
+  return a.every((s, i) => s.studentId === b[i].studentId && s.text === b[i].text && !!s.struck === !!b[i].struck);
 }
 
 export interface PlannedRun {

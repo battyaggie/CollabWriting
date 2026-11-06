@@ -17,7 +17,7 @@ export default function StudentClassPage() {
   const [session, setSession] = useState<StudentSession | null>(null);
   const [classData, setClassData] = useState<ClassDoc | null>(null);
   const [student, setStudent] = useState<StudentDoc | null>(null);
-  const [tab, setTab] = useState<"write" | "feedback">("write");
+  const [tab, setTab] = useState<"write" | "feedback" | "hotseat">("write");
   const [groups, setGroups] = useState<Record<string, GroupDoc>>({});
   const [activeExerciseId, setActiveExerciseId] = useState<string | null>(null);
   const [roster, setRoster] = useState<(StudentDoc & { id: string })[]>([]);
@@ -118,8 +118,9 @@ export default function StudentClassPage() {
   const closed = classData.status === "completed";
   const isHotSeat = classData.hotSeatGroupId === student.groupId;
   const reviewsName = reviewsId ? groups[reviewsId]?.name ?? "another group" : null;
-  const showHotSeatPanel = !!classData.hotSeatGroupId && classData.hotSeatGroupId !== reviewsId;
-  const canGiveFeedback = !!classData.hotSeatGroupId || !!reviewsId;
+  const hasHotSeat = !!classData.hotSeatGroupId;
+  // If the projector stops showing a group while a student is on the Hot Seat tab, fall back to the writing tab.
+  const activeTab = tab === "hotseat" && !hasHotSeat ? "write" : tab;
 
   return (
     <div className="min-h-screen bg-tw-bg">
@@ -167,18 +168,26 @@ export default function StudentClassPage() {
 
         <div className="flex gap-2">
           <button
-            className={`tw-btn ${tab === "write" ? "tw-btn-primary" : "tw-btn-secondary"}`}
+            className={`tw-btn ${activeTab === "write" ? "tw-btn-primary" : "tw-btn-secondary"}`}
             onClick={() => setTab("write")}
           >
             Our Writing
           </button>
           <button
-            className={`tw-btn ${tab === "feedback" ? "tw-btn-primary" : "tw-btn-secondary"}`}
+            className={`tw-btn ${activeTab === "feedback" ? "tw-btn-primary" : "tw-btn-secondary"}`}
             onClick={() => setTab("feedback")}
-            disabled={!canGiveFeedback}
+            disabled={!reviewsId}
           >
             Give Feedback
           </button>
+          {hasHotSeat && (
+            <button
+              className={`tw-btn ${activeTab === "hotseat" ? "tw-btn-primary" : "tw-btn-secondary"}`}
+              onClick={() => setTab("hotseat")}
+            >
+              Hot Seat
+            </button>
+          )}
           <span className="flex-1" />
           <a
             href={`/s/${classId}/print`}
@@ -190,7 +199,24 @@ export default function StudentClassPage() {
           </a>
         </div>
 
-        {tab === "write" && reviewsId && (
+        {activeTab === "write" && hasHotSeat && (
+          <div className="bg-[#FFF6D6] border border-[#FFE066] rounded-lg p-4 flex items-center justify-between gap-4">
+            <span className="text-sm text-tw-navy">
+              {isHotSeat ? (
+                <>Your group is in the hot seat: the class can see your text on the projector.</>
+              ) : (
+                <>
+                  <strong>{groups[classData.hotSeatGroupId!]?.name ?? "A group"}</strong> is on the projector.
+                </>
+              )}
+            </span>
+            <button className="tw-btn tw-btn-primary" onClick={() => setTab("hotseat")}>
+              Hot Seat
+            </button>
+          </div>
+        )}
+
+        {activeTab === "write" && reviewsId && (
           <div className="bg-[#EAF1F5] border border-tw-blue-light rounded-lg p-4 flex items-center justify-between gap-4">
             <span className="text-sm text-tw-navy">
               Your group can now read <strong>{reviewsName}</strong> and give them feedback.
@@ -201,7 +227,7 @@ export default function StudentClassPage() {
           </div>
         )}
 
-        {tab === "write" && (
+        {activeTab === "write" && (
           <GroupWriter
             classId={classId}
             groupId={student.groupId}
@@ -213,7 +239,7 @@ export default function StudentClassPage() {
           />
         )}
 
-        {tab === "write" && hasTeacherComments && (
+        {activeTab === "write" && hasTeacherComments && (
           <div className="bg-white border border-tw-grey-light rounded-xl p-8">
             <h2 className="font-display text-lg text-tw-navy mt-0 mb-1">Comments from your teacher</h2>
             <p className="text-sm text-tw-grey mt-0 mb-5">
@@ -232,7 +258,7 @@ export default function StudentClassPage() {
           </div>
         )}
 
-        {tab === "feedback" && reviewsId && (
+        {activeTab === "feedback" && reviewsId && (
           <div className="flex flex-col gap-4">
             <div className="bg-white border border-tw-grey-light rounded-xl p-8">
               <h2 className="font-display text-lg text-tw-navy mt-0 mb-1">Give feedback to {reviewsName}</h2>
@@ -249,6 +275,7 @@ export default function StudentClassPage() {
                 colorIndex={student.colorIndex}
                 anchors={reviewAnchors}
                 readOnly={closed}
+                trackChanges
                 renderCommentBox={(selection, close) => (
                   <CommentComposer
                     classId={classId}
@@ -258,6 +285,7 @@ export default function StudentClassPage() {
                     colorIndex={student.colorIndex}
                     selection={selection}
                     onDone={close}
+                    kind="peer"
                   />
                 )}
               />
@@ -269,21 +297,22 @@ export default function StudentClassPage() {
                   alias={session.alias}
                   colorIndex={student.colorIndex}
                   readOnly={closed}
+                  kind="peer"
                 />
               </div>
             </div>
           </div>
         )}
 
-        {tab === "feedback" && showHotSeatPanel && (
+        {activeTab === "hotseat" && hasHotSeat && (
           <div className="bg-white border border-tw-grey-light rounded-xl p-8">
             <h2 className="font-display text-lg text-tw-navy mt-0 mb-1">
-              {isHotSeat ? "Your group is in the hot seat" : "Feedback for the group on the projector"}
+              {isHotSeat ? "Your group is in the hot seat" : `Hot seat: feedback for ${groups[classData.hotSeatGroupId!]?.name ?? "the group on the projector"}`}
             </h2>
             <p className="text-sm text-tw-grey mt-0 mb-5">
               {isHotSeat
                 ? "Here's what the rest of the class is saying about your writing."
-                : "Read their writing on the projector, then share what's working and what could be clearer."}
+                : "This is separate from the group you review. Read their writing on the projector, then share what's working and what could be clearer."}
             </p>
             <FeedbackThread
               classId={classId}
@@ -292,11 +321,12 @@ export default function StudentClassPage() {
               alias={session.alias}
               colorIndex={student.colorIndex}
               readOnly={isHotSeat || closed}
+              kind="hotseat"
             />
           </div>
         )}
 
-        {tab === "feedback" && !isHotSeat && (
+        {activeTab === "feedback" && !isHotSeat && (
           <div className="bg-white border border-tw-grey-light rounded-xl p-8">
             <h2 className="font-display text-lg text-tw-navy mt-0 mb-1">Feedback on your group&rsquo;s writing</h2>
             <p className="text-sm text-tw-grey mt-0 mb-5">What other groups have said about your text so far.</p>
