@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { RosterChips } from "@/components/RosterChips";
 import { ColorPicker } from "@/components/ColorPicker";
 import { colorFor } from "@/lib/colors";
@@ -42,6 +43,22 @@ function Step({ state, children }: { state: "done" | "active" | "todo"; children
 /** Shown after joining, until the teacher has formed the groups and started the session. */
 export function WaitingScreen({ classId, studentId, classData, alias, colorIndex, roster, groupName, groupMates }: Props) {
   const hasGroup = !!groupName;
+  // When this page is shown inside another site (Process Lab's lobby), tell that site the student's group,
+  // so it can show it outside the small frame. Only the group name and nicknames are sent, only to the embedding site.
+  const mates = groupMates.map((m) => m.alias).join("|");
+  useEffect(() => {
+    if (!hasGroup || typeof window === "undefined" || window.parent === window) return;
+    try {
+      const target = document.referrer ? new URL(document.referrer).origin : "";
+      if (!target) return;
+      window.parent.postMessage(
+        { type: "pl-group", group: groupName, you: alias, members: mates ? mates.split("|") : [] },
+        target
+      );
+    } catch {
+      /* no embedding site to tell: fine */
+    }
+  }, [hasGroup, groupName, alias, mates]);
   // Joined after the exercise had already started (or came back on a new device): the other groups are writing.
   const lateJoin = !hasGroup && classData.status === "live";
   return (
