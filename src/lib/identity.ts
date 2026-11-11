@@ -50,7 +50,7 @@ export async function claimIdentity(scope: string, nickname: string, pin: string
       return { uid: r.user.uid };
     } catch (err) {
       const e = err as { code?: string; message?: string };
-      const known = e.code === "pin/wrong" || e.code === "pin/locked" || e.code === "invalid-argument";
+      const known = ["pin/wrong", "pin/locked", "pin/reset-expired", "invalid-argument"].includes(e.code ?? "");
       throw new IdentityError(known ? e.code!.replace("pin/", "") : "failed", known ? e.message ?? NOT_REACHED : NOT_REACHED);
     }
   }
@@ -94,5 +94,41 @@ export async function releaseNicknames(scope: string): Promise<void> {
     });
   } catch {
     /* best effort */
+  }
+}
+
+/**
+ * A teacher resets one student's forgotten PIN. The student keeps their identity (group and text) and has half an
+ * hour to choose a new PIN on the join page. Throws IdentityError with a message for the teacher if it cannot be done.
+ */
+export async function resetStudentPin(scope: string, nickname: string): Promise<void> {
+  if (isLocalBackend) {
+    const { resetPin } = await import("@/backend/local/auth");
+    try {
+      await resetPin(scope, nickname);
+    } catch (err) {
+      const e = err as { code?: string; message?: string };
+      throw new IdentityError(e.code ?? "failed", e.message ?? "Could not reset the PIN. Please try again.");
+    }
+    return;
+  }
+  const user = auth.currentUser;
+  if (!user) throw new IdentityError("unauthenticated", "Please sign in again.");
+  let res: Response;
+  try {
+    res = await fetch("/api/identity", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "reset", scope, nickname, idToken: await user.getIdToken() }),
+    });
+  } catch {
+    throw new IdentityError("failed", "Could not reach the server. Please try again.");
+  }
+  if (res.status === 404 && !(await res.clone().json().catch(() => null))?.code) {
+    throw new IdentityError("unavailable", "PIN sign-in is not set up on this server.");
+  }
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { code?: string; message?: string };
+    throw new IdentityError(body.code ?? "failed", body.message ?? "Could not reset the PIN. Please try again.");
   }
 }

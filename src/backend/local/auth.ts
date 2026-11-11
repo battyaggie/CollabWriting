@@ -84,3 +84,8 @@ export async function signInWithPin(
 export async function releasePins(scope: string): Promise<void> {
   await connection.request({ t: "pin-release", scope });
 }
+
+/** A teacher resets one forgotten PIN: the student keeps their identity and has half an hour to choose a new PIN. */
+export async function resetPin(scope: string, nickname: string): Promise<void> {
+  await connection.request({ t: "pin-reset", scope, nickname });
+}

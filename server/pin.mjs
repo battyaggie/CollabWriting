@@ -12,6 +12,8 @@ export const PIN_MAX = 32;
 /** After this many wrong PINs in a row the nickname is locked for LOCK_MS (the only brake on guessing a 4-digit PIN). */
 export const MAX_FAILURES = 5;
 export const LOCK_MS = 10 * 60_000;
+/** After a teacher resets a forgotten PIN the student has this long to choose a new one (see resetRecord). */
+export const RESET_MS = 30 * 60_000;
 
 export function cleanNickname(nickname) {
   return String(nickname ?? "").normalize("NFKC").trim().replace(/\s+/g, " ");
@@ -50,16 +52,32 @@ export function pinMatches(record, pin) {
 }
 
 /**
+ * A teacher resets a forgotten PIN: the nickname stays tied to the same identity (so the same group and text),
+ * but has no PIN for RESET_MS. Whoever presents the nickname in that time chooses the new PIN, so the teacher
+ * tells the student to do it straight away. After that time nothing can be claimed until the teacher resets again.
+ */
+export function resetRecord(record, nowMs) {
+  return { ...record, salt: "", hash: "", failures: 0, lockedUntil: 0, resetUntil: nowMs + RESET_MS };
+}
+
+/**
  * Decides what happens when someone presents `pin` for a nickname.
  * `record` is what is stored for that nickname in that class, or null: { uid, salt, hash, failures, lockedUntil }.
  * `callerUid` is the identity of the browser asking (an anonymous student).
  * Returns { outcome, record, uid? }: "registered" (first use: the caller's identity is now tied to the nickname),
- * "ok" (right PIN: the stored identity is returned), "wrong", or "locked". `record` is what to store afterwards.
+ * "ok" (right PIN: the stored identity is returned), "wrong", "locked", "reset-done" (the teacher had reset the PIN:
+ * the PIN presented is now the PIN, and the stored identity is returned) or "reset-expired". `record` is what to
+ * store afterwards.
  */
 export function decideClaim(record, pin, callerUid, nowMs) {
   if (!record) {
     const { salt, hash } = hashPin(pin);
     return { outcome: "registered", uid: callerUid, record: { uid: callerUid, salt, hash, failures: 0, lockedUntil: 0 } };
+  }
+  if (record.hash === "") {
+    if ((record.resetUntil ?? 0) <= nowMs) return { outcome: "reset-expired", record };
+    const { salt, hash } = hashPin(pin);
+    return { outcome: "reset-done", uid: record.uid, record: { ...record, salt, hash, failures: 0, lockedUntil: 0, resetUntil: 0 } };
   }
   if ((record.lockedUntil ?? 0) > nowMs) return { outcome: "locked", record, retryInMs: record.lockedUntil - nowMs };
   if (pinMatches(record, pin)) {
@@ -81,3 +99,8 @@ export function lockedMessage(retryInMs) {
   const minutes = Math.max(1, Math.ceil(retryInMs / 60_000));
   return `Too many wrong PINs for this nickname. Please wait ${minutes} ${minutes === 1 ? "minute" : "minutes"} and try again.`;
 }
+
+export const RESET_EXPIRED_MESSAGE =
+  "Your teacher reset this PIN, but the time to choose a new one has run out. Please ask your teacher to reset it again.";
+
+export const NO_PIN_MESSAGE = "No PIN is set for that nickname in this class.";

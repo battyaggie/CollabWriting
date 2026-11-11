@@ -1,5 +1,16 @@
 import { StoreError } from "./errors.mjs";
-import { LOCK_MS, cleanNickname, decideClaim, lockedMessage, pinProblem, recordId, WRONG_PIN_MESSAGE } from "./pin.mjs";
+import {
+  LOCK_MS,
+  NO_PIN_MESSAGE,
+  RESET_EXPIRED_MESSAGE,
+  WRONG_PIN_MESSAGE,
+  cleanNickname,
+  decideClaim,
+  lockedMessage,
+  pinProblem,
+  recordId,
+  resetRecord,
+} from "./pin.mjs";
 
 /**
  * Nickname + PIN records of the container version (see pin.mjs). Kept in their own table, not in the
@@ -23,6 +34,10 @@ export class Pins {
       );
       CREATE INDEX IF NOT EXISTS pins_scope ON pins(scope);
     `);
+    // Added after the first version of this table (a PIN reset by a teacher is open until this time).
+    if (!this.db.prepare("PRAGMA table_info(pins)").all().some((c) => c.name === "reset_until")) {
+      this.db.exec("ALTER TABLE pins ADD COLUMN reset_until INTEGER NOT NULL DEFAULT 0");
+    }
   }
 
   /**
@@ -39,9 +54,9 @@ export class Pins {
 
     const id = recordId(scope, nick);
     const t = this.now();
-    const row = this.db.prepare("SELECT uid, salt, hash, failures, locked_until FROM pins WHERE id = ?").get(id);
+    const row = this.db.prepare("SELECT uid, salt, hash, failures, locked_until, reset_until FROM pins WHERE id = ?").get(id);
     const stored = row
-      ? { uid: row.uid, salt: row.salt, hash: row.hash, failures: row.failures, lockedUntil: row.locked_until }
+      ? { uid: row.uid, salt: row.salt, hash: row.hash, failures: row.failures, lockedUntil: row.locked_until, resetUntil: row.reset_until }
       : null;
     const d = decideClaim(stored, pin, callerUid, t);
 
@@ -61,13 +76,30 @@ export class Pins {
       return { uid: callerUid, registered: true };
     }
     if (d.outcome === "locked") throw new StoreError("pin/locked", lockedMessage(d.retryInMs));
+    if (d.outcome === "reset-expired") throw new StoreError("pin/reset-expired", RESET_EXPIRED_MESSAGE);
     this.db
-      .prepare("UPDATE pins SET failures = ?, locked_until = ? WHERE id = ?")
-      .run(d.record.failures, d.record.lockedUntil, id);
+      .prepare("UPDATE pins SET salt = ?, hash = ?, failures = ?, locked_until = ?, reset_until = ? WHERE id = ?")
+      .run(d.record.salt, d.record.hash, d.record.failures, d.record.lockedUntil, d.record.resetUntil ?? 0, id);
     if (d.outcome === "wrong") {
       throw new StoreError("pin/wrong", d.locks ? lockedMessage(LOCK_MS) : WRONG_PIN_MESSAGE);
     }
     return { uid: d.uid, registered: false };
+  }
+
+  /**
+   * A teacher resets one forgotten PIN: the nickname keeps its identity (group and text) but the student has
+   * RESET_MS to choose a new PIN. Returns { until } (when the chance runs out).
+   */
+  reset(scope, nickname) {
+    const nick = cleanNickname(nickname);
+    const id = recordId(String(scope ?? ""), nick);
+    const row = this.db.prepare("SELECT 1 AS found FROM pins WHERE id = ?").get(id);
+    if (!row) throw new StoreError("not-found", NO_PIN_MESSAGE);
+    const r = resetRecord({}, this.now());
+    this.db
+      .prepare("UPDATE pins SET salt = '', hash = '', failures = 0, locked_until = 0, reset_until = ? WHERE id = ?")
+      .run(r.resetUntil, id);
+    return { until: r.resetUntil };
   }
 
   /** Forgets every nickname and PIN of a class (used when the class is deleted). Returns how many were removed. */

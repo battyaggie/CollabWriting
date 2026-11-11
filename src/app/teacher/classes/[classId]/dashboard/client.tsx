@@ -6,6 +6,7 @@ import { collection, doc, onSnapshot, orderBy, query, updateDoc, writeBatch } fr
 import { db } from "@/lib/firebase";
 import { colorFor } from "@/lib/colors";
 import { saveOriginalText } from "@/lib/snapshot";
+import { PinResetPanel } from "@/components/PinResetPanel";
 import type { ClassDoc, GroupDoc, StudentDoc } from "@/lib/types";
 
 type GroupRow = GroupDoc & { id: string };
@@ -278,6 +279,8 @@ export default function TeacherDashboardPage() {
             Close this exercise (no more changes)&hellip;
           </button>
         )}
+
+        <PinResetPanel scope={classData.courseId ?? classId} aliases={students.map((s) => s.alias)} />
 
         {classData.status !== "completed" && unassigned.length > 0 && (
           <div

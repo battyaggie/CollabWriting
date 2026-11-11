@@ -123,6 +123,13 @@ export function createBackend({
     }
   }
 
+  /** `scope` is a class code (or, for a single session, an exercise code); only its own teacher may pass. */
+  function requireTeacherOfScope(c, scope) {
+    if (!c.user || c.user.isAnonymous) throw new StoreError("permission-denied", "Teachers only.");
+    const owner = store.getDoc(`courses/${scope}`)?.data?.teacherId ?? store.getDoc(`classes/${scope}`)?.data?.teacherId;
+    if (!owner || owner !== c.user.uid) throw new StoreError("permission-denied", "This is not your class.");
+  }
+
   function requireAdmin(c) {
     if (!c.user?.isAdmin) throw new StoreError("permission-denied", "Administrators only.");
   }
@@ -166,11 +173,15 @@ export function createBackend({
         }
         case "pin-release": {
           // The teacher of a class forgets all its nicknames and PINs (called just before the class is deleted).
-          if (!c.user || c.user.isAnonymous) throw new StoreError("permission-denied", "Teachers only.");
           const scope = String(m.scope ?? "");
-          const owner = store.getDoc(`courses/${scope}`)?.data?.teacherId ?? store.getDoc(`classes/${scope}`)?.data?.teacherId;
-          if (!owner || owner !== c.user.uid) throw new StoreError("permission-denied", "This is not your class.");
+          requireTeacherOfScope(c, scope);
           return reply({ removed: pins.releaseScope(scope) });
+        }
+        case "pin-reset": {
+          // The teacher of a class resets one forgotten PIN: same identity, new PIN within half an hour.
+          const scope = String(m.scope ?? "");
+          requireTeacherOfScope(c, scope);
+          return reply(pins.reset(scope, m.nickname));
         }
         case "signout": {
           c.user = null;

@@ -13,12 +13,15 @@ import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 import {
   LOCK_MS,
+  NO_PIN_MESSAGE,
+  RESET_EXPIRED_MESSAGE,
   WRONG_PIN_MESSAGE,
   cleanNickname,
   decideClaim,
   lockedMessage,
   pinProblem,
   recordId,
+  resetRecord,
 } from "../../../../server/pin.mjs";
 
 export const runtime = "nodejs";
@@ -69,12 +72,22 @@ export async function POST(req: Request) {
   const provider = caller.firebase?.sign_in_provider;
   const isStudent = provider === "anonymous" || provider === "custom";
 
-  if (body.action === "release") {
-    // A teacher forgets all nicknames and PINs of their class (called just before the class is deleted).
+  if (body.action === "release" || body.action === "reset") {
+    // Teachers only, and only for their own class (`scope` is a class code, or an exercise code for a single session).
     if (isStudent) return reply(403, "denied", "Teachers only.");
     const owner =
       (await db.doc(`courses/${scope}`).get()).data()?.teacherId ?? (await db.doc(`classes/${scope}`).get()).data()?.teacherId;
     if (!owner || owner !== caller.uid) return reply(403, "denied", "This is not your class.");
+
+    if (body.action === "reset") {
+      // A forgotten PIN: the nickname keeps its identity, the student has half an hour to choose a new PIN.
+      const target = db.collection("pins").doc(recordId(scope, text(body.nickname)));
+      if (!(await target.get()).exists) return reply(404, "not-found", NO_PIN_MESSAGE);
+      const r = resetRecord({}, Date.now());
+      await target.update({ salt: "", hash: "", failures: 0, lockedUntil: 0, resetUntil: r.resetUntil });
+      return NextResponse.json({ until: r.resetUntil });
+    }
+
     const found = await db.collection("pins").where("scope", "==", scope).get();
     for (let i = 0; i < found.docs.length; i += 400) {
       const batch = db.batch();
@@ -100,12 +113,20 @@ export async function POST(req: Request) {
       const others = await tx.get(db.collection("pins").where("scope", "==", scope).where("uid", "==", caller.uid));
       others.docs.forEach((o) => tx.delete(o.ref));
       tx.set(ref, { scope, nickname, ...d.record, createdAt: Date.now() });
-    } else if (d.outcome !== "locked") {
-      tx.update(ref, { failures: d.record.failures, lockedUntil: d.record.lockedUntil });
+    } else if (d.outcome !== "locked" && d.outcome !== "reset-expired") {
+      // right/wrong PIN, or the first PIN after a teacher's reset: store the new state
+      tx.update(ref, {
+        salt: d.record.salt,
+        hash: d.record.hash,
+        failures: d.record.failures,
+        lockedUntil: d.record.lockedUntil,
+        resetUntil: d.record.resetUntil ?? 0,
+      });
     }
     return d;
   });
 
+  if (decision.outcome === "reset-expired") return reply(403, "reset-expired", RESET_EXPIRED_MESSAGE);
   if (decision.outcome === "locked") return reply(429, "locked", lockedMessage(decision.retryInMs ?? LOCK_MS));
   if (decision.outcome === "wrong") return reply(403, "wrong", decision.locks ? lockedMessage(LOCK_MS) : WRONG_PIN_MESSAGE);
 

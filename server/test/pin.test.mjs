@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createBackend } from "../app.mjs";
-import { LOCK_MS, MAX_FAILURES, decideClaim, nicknameKey, pinProblem, recordId } from "../pin.mjs";
+import { LOCK_MS, MAX_FAILURES, RESET_MS, decideClaim, nicknameKey, pinProblem, recordId, resetRecord } from "../pin.mjs";
 
 /* ---------- the rules of PINs, on their own ---------- */
 
@@ -40,6 +40,22 @@ test("pin: first use registers, right PIN returns the stored identity, wrong PIN
   // locked: even the right PIN is refused until the time is up
   assert.equal(decideClaim(last.record, "4821", "uid-B", t0 + 1000).outcome, "locked");
   assert.equal(decideClaim(last.record, "4821", "uid-B", t0 + LOCK_MS + 1).outcome, "ok");
+});
+
+test("pin: a reset keeps the identity, takes the next PIN presented, and lapses after its time", () => {
+  const t0 = 5_000;
+  const { record } = decideClaim(null, "4821", "uid-A", t0);
+  const reset = resetRecord(record, t0);
+  assert.equal(reset.uid, "uid-A");
+  assert.equal(reset.hash, "");
+  // inside the window: whoever presents the nickname sets the new PIN and gets the stored identity
+  const done = decideClaim(reset, "7777", "uid-NEW-BROWSER", t0 + 1000);
+  assert.equal(done.outcome, "reset-done");
+  assert.equal(done.uid, "uid-A");
+  assert.equal(decideClaim(done.record, "7777", "uid-X", t0 + 2000).outcome, "ok");
+  assert.equal(decideClaim(done.record, "4821", "uid-X", t0 + 2000).outcome, "wrong"); // the old PIN is gone
+  // after the window nothing can be claimed until the teacher resets again
+  assert.equal(decideClaim(reset, "7777", "uid-B", t0 + RESET_MS + 1).outcome, "reset-expired");
 });
 
 /* ---------- through the server, like a browser ---------- */
@@ -170,5 +186,48 @@ test("a teacher cannot use a PIN, and only the class's own teacher can release i
   const reuse = await later.b.ask({ t: "pin-claim", scope: "BMR", nickname: "Dana", pin: "5555" });
   assert.equal(reuse.registered, true);
   assert.equal(reuse.user.uid, later.uid);
+  await backend.close();
+});
+
+test("a teacher resets a forgotten PIN: same identity, new PIN within the time, old PIN dead, lapses if unused", async () => {
+  const { backend, port } = await start();
+  const { setupToken } = backend.adminSetups[0];
+  const teacher = await browser(port);
+  const set = await teacher.ask({ t: "set-password", token: setupToken, password: "a-long-enough-password" });
+  await teacher.ask({
+    t: "commit",
+    writes: [{ op: "set", path: "courses/BMR", data: { courseCode: "BMR", teacherId: set.user.uid, className: "BMR" } }],
+  });
+
+  const s = await student(port);
+  await s.b.ask({ t: "pin-claim", scope: "BMR", nickname: "Eva", pin: "1234" });
+
+  // only the class's own teacher can reset; students cannot; an unknown nickname is reported
+  assert.equal((await s.b.ask({ t: "pin-reset", scope: "BMR", nickname: "Eva" })).code, "permission-denied");
+  assert.equal((await teacher.ask({ t: "pin-reset", scope: "NOPE", nickname: "Eva" })).code, "permission-denied");
+  assert.equal((await teacher.ask({ t: "pin-reset", scope: "BMR", nickname: "Nobody" })).code, "not-found");
+
+  const r = await teacher.ask({ t: "pin-reset", scope: "BMR", nickname: " eva " });
+  assert.equal(r.ok, true);
+  assert.equal(r.until, clock + RESET_MS);
+
+  // the forgetful student, on a new device, chooses a new PIN and is the same person as before
+  const home = await student(port);
+  const back = await home.b.ask({ t: "pin-claim", scope: "BMR", nickname: "Eva", pin: "9876" });
+  assert.equal(back.ok, true);
+  assert.equal(back.user.uid, s.uid);
+  // the old PIN no longer works, the new one does
+  const third = await student(port);
+  assert.equal((await third.b.ask({ t: "pin-claim", scope: "BMR", nickname: "Eva", pin: "1234" })).code, "pin/wrong");
+  assert.equal((await third.b.ask({ t: "pin-claim", scope: "BMR", nickname: "Eva", pin: "9876" })).user.uid, s.uid);
+
+  // a reset that nobody uses lapses
+  await teacher.ask({ t: "pin-reset", scope: "BMR", nickname: "Eva" });
+  clock += RESET_MS + 1000;
+  const late = await student(port);
+  assert.equal((await late.b.ask({ t: "pin-claim", scope: "BMR", nickname: "Eva", pin: "5555" })).code, "pin/reset-expired");
+  // ...and the teacher can simply reset again
+  await teacher.ask({ t: "pin-reset", scope: "BMR", nickname: "Eva" });
+  assert.equal((await late.b.ask({ t: "pin-claim", scope: "BMR", nickname: "Eva", pin: "5555" })).user.uid, s.uid);
   await backend.close();
 });
