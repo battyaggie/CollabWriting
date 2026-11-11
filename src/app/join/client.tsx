@@ -3,8 +3,10 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { collection, doc, getDoc, getDocs, runTransaction, updateDoc } from "firebase/firestore";
-import { auth, db, ensureAnonymousUser } from "@/lib/firebase";
+import { db } from "@/lib/firebase";
 import { normalizeCode } from "@/lib/classCode";
+import { fetchOpenExercises, hasSessionFor, type ExerciseRow } from "@/lib/openExercises";
+import { IdentityError, PIN_MAX, claimIdentity, pinProblem } from "@/lib/identity";
 import { PrivacyNotice } from "@/components/PrivacyNotice";
 import type { ClassDoc, CourseDoc, StudentSession } from "@/lib/types";
 
@@ -12,8 +14,13 @@ export default function JoinPage() {
   const router = useRouter();
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
+  const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  /** Set when the class code leads to several open exercises: the student picks one. */
+  const [choices, setChoices] = useState<ExerciseRow[] | null>(null);
+  /** The exercise the teacher marked as the latest one (shown with a tag in the list). */
+  const [latestId, setLatestId] = useState<string | null>(null);
 
   // Remember the class code and nickname from last time (and accept ?code=BMR in the address).
   useEffect(() => {
@@ -28,11 +35,12 @@ export default function JoinPage() {
     }
   }, []);
 
-  async function handleJoin(e: React.FormEvent) {
-    e.preventDefault();
+  /** `chosenId` is set when the student picked one exercise from the list of open ones. */
+  async function handleJoin(e: React.FormEvent | null, chosenId?: string) {
+    e?.preventDefault();
     setError(null);
     const typedCode = normalizeCode(code);
-    let classId = typedCode;
+    let classId = chosenId ?? typedCode;
     const alias = name.trim();
     if (!typedCode) {
       setError("Enter the class code your teacher gave you.");
@@ -42,20 +50,37 @@ export default function JoinPage() {
       setError("Enter a nickname.");
       return;
     }
+    const pinIssue = pinProblem(pin);
+    if (pinIssue) {
+      setError(pinIssue);
+      return;
+    }
     setLoading(true);
     try {
       let classSnap = await getDoc(doc(db, "classes", classId));
-      if (!classSnap.exists()) {
-        // Not an exercise code: maybe the code of a whole class (e.g. "BMR"), which leads to the exercise open now.
+      if (!classSnap.exists() && !chosenId) {
+        // Not an exercise code: maybe the code of a whole class (e.g. "BMR"). One open exercise: go straight in.
+        // Several open exercises: the student chooses (they may be continuing last week's or starting this week's).
         const courseSnap = await getDoc(doc(db, "courses", typedCode));
         if (courseSnap.exists()) {
-          const active = (courseSnap.data() as CourseDoc).activeExerciseId;
-          if (!active) {
-            setError("Your teacher hasn't opened an exercise yet. Please try again in a moment.");
+          const latest = (courseSnap.data() as CourseDoc).activeExerciseId;
+          const open = await fetchOpenExercises(typedCode);
+          if (open.length === 0) {
+            setError(
+              latest
+                ? "The exercises in this class are closed, so they can no longer be joined."
+                : "Your teacher hasn't opened an exercise yet. Please try again in a moment."
+            );
             setLoading(false);
             return;
           }
-          classId = active;
+          if (open.length > 1) {
+            setLatestId(latest);
+            setChoices(open);
+            setLoading(false);
+            return;
+          }
+          classId = open[0].id;
           classSnap = await getDoc(doc(db, "classes", classId));
         }
       }
@@ -71,7 +96,9 @@ export default function JoinPage() {
         return;
       }
 
-      const user = await ensureAnonymousUser();
+      // Nickname + PIN: the first time this sets the PIN; on another device it brings back the same identity
+      // (so the same group and text). The PIN is per class, so it works for every exercise of the class.
+      const user = await claimIdentity(classData.courseId ?? classId, alias, pin);
       const studentRef = doc(db, "classes", classId, "students", user.uid);
 
       // Students may not write to the class record (only the teacher can), so the
@@ -122,7 +149,7 @@ export default function JoinPage() {
       router.push(`/s/${classId}`);
     } catch (err) {
       console.error(err);
-      setError("Something went wrong joining the class. Please try again.");
+      setError(err instanceof IdentityError ? err.message : "Something went wrong joining the class. Please try again.");
       setLoading(false);
     }
   }
@@ -135,6 +162,38 @@ export default function JoinPage() {
           <h1 className="font-display text-3xl text-tw-navy m-0">Collaborative Writing</h1>
           <p className="text-[15px] text-tw-grey m-0">Enter the class code your teacher gave you</p>
         </div>
+        {choices ? (
+          <div className="flex flex-col gap-3">
+            <p className="text-[15px] text-tw-navy m-0">
+              Several exercises are open in this class. Which one do you want to work on, {name.trim()}?
+            </p>
+            {choices.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className="tw-btn tw-btn-secondary flex items-center justify-between gap-3 text-left"
+                disabled={loading}
+                onClick={() => handleJoin(null, c.id)}
+              >
+                <span>{c.taskName}</span>
+                <span className="text-xs text-tw-grey whitespace-nowrap">
+                  {hasSessionFor(c.id) ? "continue" : c.id === latestId ? "latest" : ""}
+                </span>
+              </button>
+            ))}
+            {error && <p className="text-sm text-[#C1440E] m-0">{error}</p>}
+            <button
+              type="button"
+              className="text-sm text-tw-grey underline self-start"
+              onClick={() => {
+                setChoices(null);
+                setError(null);
+              }}
+            >
+              Use a different code or nickname
+            </button>
+          </div>
+        ) : (
         <form onSubmit={handleJoin} className="flex flex-col gap-4">
           <div className="tw-field">
             <label htmlFor="tw-code">Class code</label>
@@ -156,13 +215,31 @@ export default function JoinPage() {
               placeholder="e.g. Anna_K, or any nickname"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              autoComplete="username"
             />
+          </div>
+          <div className="tw-field">
+            <label htmlFor="tw-pin">Your PIN</label>
+            <input
+              id="tw-pin"
+              type="password"
+              placeholder="at least 4 characters"
+              value={pin}
+              maxLength={PIN_MAX}
+              onChange={(e) => setPin(e.target.value)}
+              autoComplete="current-password"
+            />
+            <span className="text-xs text-tw-grey">
+              Choose a PIN you will remember. With the same nickname and PIN you can get back to your text on another
+              device, for example at home. Joining for the first time? This sets your PIN.
+            </span>
           </div>
           {error && <p className="text-sm text-[#C1440E] m-0">{error}</p>}
           <button type="submit" className="tw-btn tw-btn-primary" disabled={loading}>
             {loading ? "Joining…" : "Join Session"}
           </button>
         </form>
+        )}
         <PrivacyNotice />
       </div>
       <a

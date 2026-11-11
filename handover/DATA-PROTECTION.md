@@ -18,6 +18,7 @@ advertising or tracking cookies.
 |---|---|---|
 | Nickname (alias) and a colour | Students | Students are asked to use a **nickname instead of their real name** and not to write personal details; the notice is shown before joining. How a nickname is matched to a person for grading is arranged by the lecturer in class and is **not** recorded in the application |
 | A random identifier | Students | Created in the browser on first visit; links a student to their entries within a class |
+| Nickname + PIN (PIN as a salted scrypt hash only, never the PIN itself), per class | Students | Lets a student get the same identity back on another device. Kept in its own database table that no screen can read; five wrong PINs in a row lock the nickname for 10 minutes. Deleted together with the class |
 | Texts written, with who wrote which part | Students | The shared group text; authorship by identifier/colour |
 | Feedback comments, with author | Students | Peer feedback; the author is needed for grading |
 | Class name, exercise title, group assignments, timestamps | Lecturers/Students | |
@@ -38,7 +39,7 @@ advertising or tracking cookies.
 - IT: the server, the volume and the backups.
 
 ## Deletion and retention
-- A lecturer can delete a whole class, or a single exercise, in the application, with everything in it (groups, texts, feedback, student list); the data is then removed from the database. Backups keep deleted data until they rotate out (14 daily copies).
+- A lecturer can delete a whole class, or a single exercise, in the application, with everything in it (groups, texts, feedback, student list, and for a class its nicknames and PIN hashes); the data is then removed from the database. Backups keep deleted data until they rotate out (14 daily copies).
 - Lecturer accounts can be switched off; there is no function yet to delete an account completely.
 - **There is no automatic deletion yet.** If a retention period is required (for example "delete classes after 12 months"), it can be added.
 

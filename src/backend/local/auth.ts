@@ -60,3 +60,32 @@ export async function signInWithEmailAndPassword(
   connection.adopt(r.user as User, r.token as string);
   return { user: r.user as User };
 }
+
+/** Not used in the container version (the Vercel version signs students back in with a custom token). */
+export async function signInWithCustomToken(_auth: Auth, _token: string): Promise<{ user: User }> {
+  throw new Error("Custom-token sign-in is not available in the container version.");
+}
+
+/**
+ * Container version of "nickname + PIN gets you your identity back" (see server/pin.mjs). The server checks the
+ * PIN and answers with the student's original identity, which this browser then adopts.
+ */
+export async function signInWithPin(
+  scope: string,
+  nickname: string,
+  pin: string
+): Promise<{ user: User; registered: boolean }> {
+  const r = await connection.request({ t: "pin-claim", scope, nickname, pin });
+  connection.adopt(r.user as User, r.token as string);
+  return { user: r.user as User, registered: !!r.registered };
+}
+
+/** A teacher forgets all nicknames and PINs of a class (just before the class is deleted). */
+export async function releasePins(scope: string): Promise<void> {
+  await connection.request({ t: "pin-release", scope });
+}
+
+/** A teacher resets one forgotten PIN: the student keeps their identity and has half an hour to choose a new PIN. */
+export async function resetPin(scope: string, nickname: string): Promise<void> {
+  await connection.request({ t: "pin-reset", scope, nickname });
+}

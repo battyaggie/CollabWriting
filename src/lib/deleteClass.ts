@@ -1,5 +1,6 @@
-import { collection, deleteDoc, doc, getDocs, query, updateDoc, where, writeBatch, type DocumentReference } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, getDocs, query, updateDoc, where, writeBatch, type DocumentReference } from "firebase/firestore";
 import { db } from "./firebase";
+import { releaseNicknames } from "./identity";
 import type { ClassDoc } from "./types";
 
 async function deleteAll(refs: DocumentReference[]) {
@@ -16,6 +17,9 @@ async function deleteAll(refs: DocumentReference[]) {
  * level is removed first and the exercise itself last (the security rules need it to still exist).
  */
 export async function deleteExercise(classId: string) {
+  // A single session (not part of a class) owns its students' nicknames and PINs; a class's exercises share the class's.
+  const existing = await getDoc(doc(db, "classes", classId));
+  if (existing.exists() && !(existing.data() as ClassDoc).courseId) await releaseNicknames(classId);
   const groups = await getDocs(collection(db, "classes", classId, "groups"));
   for (const g of groups.docs) {
     const runs = await getDocs(collection(g.ref, "runs"));
@@ -41,6 +45,7 @@ export async function deleteExerciseOfCourse(courseId: string, classId: string, 
 
 /** Deletes a whole class: all its exercises with everything in them, then the class itself. */
 export async function deleteCourse(courseId: string) {
+  await releaseNicknames(courseId); // while the class still exists: the server checks that it is the teacher's
   const exercises = await getDocs(query(collection(db, "classes"), where("courseId", "==", courseId)));
   for (const e of exercises.docs) await deleteExercise(e.id);
   await deleteDoc(doc(db, "courses", courseId));

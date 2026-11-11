@@ -6,6 +6,7 @@ import { parseSpec, runQuery } from "./query.mjs";
 import { attachWebSocket } from "./websocket.mjs";
 import { firestoreRules } from "./rules.mjs";
 import { Accounts, RateLimiter } from "./accounts.mjs";
+import { Pins } from "./pins.mjs";
 
 /**
  * The whole backend in one object: HTTP (health check + the Next.js pages), one WebSocket per
@@ -36,6 +37,7 @@ export function createBackend({
 }) {
   const store = new Store(dataFile);
   const accounts = new Accounts(store, now);
+  const pins = new Pins(store, now);
   const limiter = new RateLimiter(now);
   const adminSetups = accounts.bootstrapAdmins(adminEmails);
 
@@ -121,6 +123,13 @@ export function createBackend({
     }
   }
 
+  /** `scope` is a class code (or, for a single session, an exercise code); only its own teacher may pass. */
+  function requireTeacherOfScope(c, scope) {
+    if (!c.user || c.user.isAnonymous) throw new StoreError("permission-denied", "Teachers only.");
+    const owner = store.getDoc(`courses/${scope}`)?.data?.teacherId ?? store.getDoc(`classes/${scope}`)?.data?.teacherId;
+    if (!owner || owner !== c.user.uid) throw new StoreError("permission-denied", "This is not your class.");
+  }
+
   function requireAdmin(c) {
     if (!c.user?.isAdmin) throw new StoreError("permission-denied", "Administrators only.");
   }
@@ -150,6 +159,29 @@ export function createBackend({
           const uid = randomBytes(14).toString("hex");
           c.user = userFor(uid);
           return reply({ user: c.user, token: signToken(uid, STUDENT_TOKEN_MS) });
+        }
+        case "pin-claim": {
+          // A student on a new device gets their old identity back with nickname + PIN (see pin.mjs).
+          if (!c.user?.isAnonymous) throw new StoreError("permission-denied", "Only students use a PIN.");
+          // A whole class sits behind one address, so this limit is generous; the per-nickname lock is the real brake.
+          if (!limiter.allow(`pin-ip:${c.ip}`, 300, 15 * 60_000)) {
+            throw new StoreError("auth/too-many-requests", "Too many attempts. Please wait a few minutes.");
+          }
+          const r = pins.claim(m.scope, m.nickname, m.pin, c.user.uid);
+          c.user = userFor(r.uid);
+          return reply({ user: c.user, token: signToken(r.uid, STUDENT_TOKEN_MS), registered: r.registered });
+        }
+        case "pin-release": {
+          // The teacher of a class forgets all its nicknames and PINs (called just before the class is deleted).
+          const scope = String(m.scope ?? "");
+          requireTeacherOfScope(c, scope);
+          return reply({ removed: pins.releaseScope(scope) });
+        }
+        case "pin-reset": {
+          // The teacher of a class resets one forgotten PIN: same identity, new PIN within half an hour.
+          const scope = String(m.scope ?? "");
+          requireTeacherOfScope(c, scope);
+          return reply(pins.reset(scope, m.nickname));
         }
         case "signout": {
           c.user = null;

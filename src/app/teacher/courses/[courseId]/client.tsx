@@ -169,8 +169,9 @@ export default function CoursePage() {
         <form onSubmit={createExercise} className="bg-white border border-tw-grey-light rounded-xl p-6 flex flex-col gap-4">
           <h2 className="font-display text-lg text-tw-navy m-0">New writing exercise</h2>
           <p className="text-sm text-tw-grey m-0">
-            Students who enter the class code after this go to the new exercise. Earlier exercises and their
-            feedback stay available below.
+            Every exercise that is not closed is open to students: if several are open, students choose which one to
+            work on after entering the class code, and can switch between them. Close an exercise (below) when it
+            should no longer appear. Earlier exercises and their feedback stay available below.
           </p>
           <div className="flex gap-4">
             <div className="tw-field flex-1">
@@ -212,12 +213,12 @@ export default function CoursePage() {
                 <p className="font-display text-base text-tw-navy m-0">{c.taskName}</p>
                 <p className="text-sm text-tw-grey m-0">
                   {new Date(c.createdAt).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" })}
-                  {course.activeExerciseId === c.id && " · students joining now"}
+                  {course.activeExerciseId === c.id && " · latest"}
                 </p>
               </a>
               {course.activeExerciseId !== c.id && (
                 <button type="button" className="text-sm text-tw-blue" onClick={() => makeActive(c.id)}>
-                  Let students join this one
+                  Mark as latest
                 </button>
               )}
               <span
