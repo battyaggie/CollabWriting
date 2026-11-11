@@ -14,6 +14,7 @@ Technikum's own server. It has **no outside dependencies**: it uses only what sh
 | WebSocket implementation | `websocket.mjs` |
 | Teacher accounts, requests, import, passwords | `accounts.mjs` |
 | Who may read/write what | `rules.mjs` (port of `firestore.rules`) |
+| Nickname + PIN (identity on another device) | `pin.mjs` (rules, shared with the Vercel version), `pins.mjs` (storage) |
 | Tests | `test/` |
 
 The browser side is in `src/backend/local/`: small replacements for `firebase/firestore`,
@@ -55,6 +56,8 @@ Requests carry a number `rid` and are answered by `{t:"res", rid, ok, ...}`.
 
 - `hello {token?}` who am I; `anon` new anonymous student; `signout`; `login {email,password}`; `signup` is refused
 - `access-request {email,name}`; `set-password {token,password}` (one-time link)
+- students: `pin-claim {scope,nickname,pin}` presents a nickname + PIN for a class and answers with that identity (`user`, `token`), so a student can return on another device; errors `pin/wrong`, `pin/locked` (rules in `pin.mjs`, storage in `pins.mjs`)
+- teachers: `pin-release {scope}` forgets all nicknames/PINs of the teacher's own class (sent just before a class is deleted)
 - admin only: `admin-overview`, `admin-approve {id}`, `admin-reject {id}`, `admin-import {people}`, `admin-reset {uid}`, `admin-disable {uid,disabled}`
 
 The server cannot send email (no outbound connections). Setup links are shown to the administrator, who

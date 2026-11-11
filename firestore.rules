@@ -24,6 +24,12 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/classes/$(classId)).data.status != 'completed';
     }
 
+    // Nicknames and PIN hashes (see src/app/api/identity/route.ts). Nobody can read or write them from the
+    // browser; only the server, with the Admin SDK (which is not subject to these rules), does.
+    match /pins/{pinId} {
+      allow read, write: if false;
+    }
+
     // A class that meets regularly. Students read it to find the exercise that is open now;
     // only its teacher can create or change it.
     match /courses/{courseId} {
