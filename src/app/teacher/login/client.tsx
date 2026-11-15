@@ -2,23 +2,21 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-} from "firebase/auth";
+import { sendPasswordResetEmail, signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { isLocalBackend } from "@/lib/backend";
 import { requestAccess } from "@/backend/local/accounts";
 
 export default function TeacherLoginPage() {
   const router = useRouter();
-  const [mode, setMode] = useState<"signin" | "signup" | "request">("signin");
+  const [mode, setMode] = useState<"signin" | "link" | "request">("signin");
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [requested, setRequested] = useState(false);
+  const [linkSent, setLinkSent] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -30,11 +28,17 @@ export default function TeacherLoginPage() {
         setRequested(true);
         return;
       }
-      if (mode === "signup") {
-        await createUserWithEmailAndPassword(auth, email, password);
-      } else {
-        await signInWithEmailAndPassword(auth, email, password);
+      if (mode === "link") {
+        // Only works for an address the administrator has approved (its account exists); the answer is the same either way.
+        try {
+          await sendPasswordResetEmail(auth, email.trim());
+        } catch (err: any) {
+          if (err?.code !== "auth/user-not-found" && err?.code !== "auth/invalid-email") throw err;
+        }
+        setLinkSent(true);
+        return;
       }
+      await signInWithEmailAndPassword(auth, email, password);
       router.push("/teacher/classes");
     } catch (err: any) {
       setError(err?.message?.replace("Firebase: ", "") ?? "Something went wrong.");
@@ -49,11 +53,28 @@ export default function TeacherLoginPage() {
         <div>
           <span className="font-display text-sm tracking-wide text-tw-blue">TECHNIKUM WIEN</span>
           <h1 className="font-display text-2xl text-tw-navy mt-1 mb-0">
-            {mode === "request" ? "Request teacher access" : "Teacher Sign In"}
+            {mode === "request" ? "Request teacher access" : mode === "link" ? "Set or reset your password" : "Teacher Sign In"}
           </h1>
         </div>
 
-        {mode === "request" && requested ? (
+        {mode === "link" && linkSent ? (
+          <div className="flex flex-col gap-3">
+            <p className="text-[15px] text-tw-navy m-0">
+              If this address has been approved for teacher access, an email with a link to choose your password is on
+              its way. Please also look in your spam folder.
+            </p>
+            <button
+              type="button"
+              className="text-sm text-tw-blue underline self-start"
+              onClick={() => {
+                setLinkSent(false);
+                setMode("signin");
+              }}
+            >
+              Back to sign in
+            </button>
+          </div>
+        ) : mode === "request" && requested ? (
           <div className="flex flex-col gap-3">
             <p className="text-[15px] text-tw-navy m-0">
               Thank you &mdash; your request has been sent. The administrator will send you a link by email to
@@ -88,7 +109,13 @@ export default function TeacherLoginPage() {
               <label htmlFor="email">Email</label>
               <input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
             </div>
-            {mode !== "request" && (
+            {mode === "link" && (
+              <p className="text-sm text-tw-grey m-0">
+                Enter your work email address. If the administrator has approved it, we send you a link to choose a
+                password.
+              </p>
+            )}
+            {mode === "signin" && (
               <div className="tw-field">
                 <label htmlFor="password">Password</label>
                 <input
@@ -107,8 +134,8 @@ export default function TeacherLoginPage() {
                 ? "Please wait…"
                 : mode === "request"
                   ? "Send request"
-                  : mode === "signup"
-                    ? "Create Account"
+                  : mode === "link"
+                    ? "Send me a password link"
                     : "Sign In"}
             </button>
           </form>
@@ -137,13 +164,23 @@ export default function TeacherLoginPage() {
             )
           )
         ) : (
-          <button
-            type="button"
-            className="text-sm text-tw-blue underline"
-            onClick={() => setMode(mode === "signup" ? "signin" : "signup")}
-          >
-            {mode === "signup" ? "Already have an account? Sign in" : "New here? Create your teacher account"}
-          </button>
+          !linkSent && (
+            <>
+              <button
+                type="button"
+                className="text-sm text-tw-blue underline"
+                onClick={() => {
+                  setError(null);
+                  setMode(mode === "link" ? "signin" : "link");
+                }}
+              >
+                {mode === "link" ? "Back to sign in" : "First time here, or forgot your password? Send me a password link"}
+              </button>
+              {mode === "signin" && (
+                <p className="text-xs text-tw-grey m-0">Teacher accounts are approved by the administrator.</p>
+              )}
+            </>
+          )
         )}
       </div>
     </div>

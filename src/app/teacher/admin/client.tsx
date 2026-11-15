@@ -21,6 +21,7 @@ import {
   type SetupLink,
 } from "@/backend/local/accounts";
 import { readPeopleFile, type Person } from "@/backend/local/importFile";
+import { ApprovedTeachers } from "@/components/ApprovedTeachers";
 
 const card = "bg-white border border-tw-grey-light rounded-xl p-5 flex flex-col gap-3";
 const IMPORT_STATUS: Record<ImportRow["status"], string> = {
@@ -169,7 +170,7 @@ export default function AdminPage() {
           </Link>
         </div>
 
-        {!isLocalBackend && <p className="text-sm text-tw-grey">This page is only used on the university server.</p>}
+        {!isLocalBackend && checked && <ApprovedTeachers />}
         {isLocalBackend && checked && !isAdmin && <p className="text-sm text-tw-grey">This page is for administrators only.</p>}
 
         {isLocalBackend && isAdmin && (

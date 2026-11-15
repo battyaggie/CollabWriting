@@ -24,6 +24,19 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/classes/$(classId)).data.status != 'completed';
     }
 
+    // A teacher is a signed-in email address that the administrator has approved (collection teacherAllowlist,
+    // managed on /teacher/admin through src/app/api/teacher-access/route.ts). Only approved teachers can create
+    // courses and exercises, so strangers cannot use up the project's quota. exists() on the allowlist works
+    // although nobody may read the collection from a browser (rules can look at it, browsers cannot).
+    function isApprovedTeacher() {
+      return isSignedIn() && request.auth.token.email != null &&
+        exists(/databases/$(database)/documents/teacherAllowlist/$(request.auth.token.email));
+    }
+
+    match /teacherAllowlist/{email} {
+      allow read, write: if false;
+    }
+
     // Nicknames and PIN hashes (see src/app/api/identity/route.ts). Nobody can read or write them from the
     // browser; only the server, with the Admin SDK (which is not subject to these rules), does.
     match /pins/{pinId} {
@@ -34,7 +47,7 @@ service cloud.firestore {
     // only its teacher can create or change it.
     match /courses/{courseId} {
       allow read: if true;
-      allow create: if isSignedIn() && request.resource.data.teacherId == request.auth.uid;
+      allow create: if isApprovedTeacher() && request.resource.data.teacherId == request.auth.uid;
       allow update, delete: if isSignedIn() && resource.data.teacherId == request.auth.uid;
     }
 
@@ -42,7 +55,7 @@ service cloud.firestore {
       // Public read so a student can look up a class by its code before joining,
       // and so live projector/dashboard views work. No sensitive data lives here.
       allow read: if true;
-      allow create: if isSignedIn() && request.resource.data.teacherId == request.auth.uid;
+      allow create: if isApprovedTeacher() && request.resource.data.teacherId == request.auth.uid;
       allow update, delete: if isTeacherOf(classId);
 
       match /students/{studentId} {
