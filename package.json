@@ -11,7 +11,9 @@
     "start:local": "node server/index.mjs",
     "test:server": "node --test server/test/server.test.mjs server/test/accounts.test.mjs server/test/rules.test.mjs server/test/backup.test.mjs server/test/pin.test.mjs",
     "test:shim": "tsx --test server/test/shim.test.ts",
-    "test:authorship": "tsx --test server/test/authorship.test.ts"
+    "test:authorship": "tsx --test server/test/authorship.test.ts",
+    "test:matching": "tsx --test server/test/matching.test.ts",
+    "test:undo": "tsx --test server/test/undo.test.ts"
   },
   "dependencies": {
     "firebase": "^11.0.0",
