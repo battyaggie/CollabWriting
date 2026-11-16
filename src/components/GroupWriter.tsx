@@ -437,8 +437,13 @@ export function GroupWriter(props: Props) {
     const text = readTexts(root).join("\n");
     const ranges: Range[] = [];
     (anchorsRef.current ?? []).forEach((a) => {
-      const r = resolveAnchor(text, a);
-      if (r) ranges.push(rangeFor(root, r.start, r.end));
+      // One comment that cannot be placed must never stop the others from being marked.
+      try {
+        const r = resolveAnchor(text, a);
+        if (r) ranges.push(rangeFor(root, r.start, r.end));
+      } catch {
+        /* skip this comment's mark */
+      }
     });
     setHighlight("cw-comment", ranges);
     const c = composingRef.current;

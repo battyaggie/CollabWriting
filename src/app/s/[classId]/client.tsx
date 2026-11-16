@@ -160,6 +160,32 @@ export default function StudentClassPage() {
           </span>
         </div>
 
+        <div className="bg-white border border-tw-grey-light rounded-xl px-5 py-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+          <strong className="font-display text-sm text-tw-navy">
+            {(ownGroupId && groups[ownGroupId]?.name) || "Your group"}
+          </strong>
+          <span className="flex flex-wrap items-center gap-2">
+            {roster
+              .filter((r) => ownGroupId && r.groupId === ownGroupId)
+              .sort((a, b) => a.joinedAt - b.joinedAt)
+              .map((r) => {
+                const me = r.id === session.studentId;
+                return (
+                  <span
+                    key={r.id}
+                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-sm ${
+                      me ? "bg-tw-navy text-white font-bold" : "bg-[#F4F5F6] text-tw-navy"
+                    }`}
+                  >
+                    <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: colorFor(r.colorIndex) }} />
+                    {r.alias}
+                    {me && <span className="text-xs font-normal opacity-80">(you)</span>}
+                  </span>
+                );
+              })}
+          </span>
+        </div>
+
         <div className="bg-white border border-tw-grey-light rounded-xl px-5 py-3">
           <ColorPicker
             classId={classId}
