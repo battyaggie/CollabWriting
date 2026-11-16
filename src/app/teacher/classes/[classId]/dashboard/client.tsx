@@ -1,5 +1,6 @@
 "use client";
 
+import { planRandomLinks } from "@/lib/matching";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { collection, doc, onSnapshot, orderBy, query, updateDoc, writeBatch } from "firebase/firestore";
@@ -190,27 +191,18 @@ export default function TeacherDashboardPage() {
       setMessage("You need at least two groups.");
       return;
     }
-    const shuffled = [...free].sort(() => Math.random() - 0.5);
-    const links: [string, string][] = []; // [reviewer, reviewed]
-    while (shuffled.length >= 2) {
-      const a = shuffled.pop()!;
-      const b = shuffled.pop()!;
-      links.push([a.id, b.id], [b.id, a.id]);
-    }
-    if (shuffled.length === 1) {
-      // an odd group out reviews a random other group
-      const lone = shuffled[0];
-      const others = groups.filter((g) => g.id !== lone.id);
-      const pick = others[Math.floor(Math.random() * others.length)];
-      links.push([lone.id, pick.id]);
-    }
+    const { links, uncovered } = planRandomLinks(groups);
     await saveOriginals(Array.from(new Set(links.map(([, reviewed]) => reviewed))));
     const batch = writeBatch(db);
     links.forEach(([reviewer, reviewed]) =>
       batch.update(doc(db, "classes", classId, "groups", reviewer), { reviewsGroupId: reviewed })
     );
     await batch.commit();
-    setMessage("Done: the remaining groups were matched at random.");
+    setMessage(
+      uncovered.length
+        ? `Matched at random, but ${uncovered.map(groupName).join(", ")} still get no feedback: too few groups were free. Link them by hand.`
+        : "Done: the remaining groups were matched at random, and every group gets feedback."
+    );
   }
 
   if (!classData) {
