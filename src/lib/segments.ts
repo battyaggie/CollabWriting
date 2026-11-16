@@ -1,3 +1,4 @@
+import { isTeacherColor } from "./colors";
 import type { RunDoc, Segment } from "./types";
 
 export type Author = Pick<Segment, "studentId" | "alias" | "colorIndex">;
@@ -8,7 +9,7 @@ export function normalize(segs: Segment[]): Segment[] {
   for (const s of segs) {
     if (!s.text) continue;
     const last = out[out.length - 1];
-    if (last && last.studentId === s.studentId && !!last.struck === !!s.struck) {
+    if (last && last.studentId === s.studentId && !!last.struck === !!s.struck && last.struckBy === s.struckBy) {
       out[out.length - 1] = { ...last, text: last.text + s.text };
     } else {
       out.push({ ...s });
@@ -49,7 +50,7 @@ export function splitAt(segs: Segment[], offset: number): [Segment[], Segment[]]
 /** True if both paragraphs have the same text written by the same people. */
 export function sameSegs(a: Segment[], b: Segment[]): boolean {
   if (a.length !== b.length) return false;
-  return a.every((s, i) => s.studentId === b[i].studentId && s.text === b[i].text && !!s.struck === !!b[i].struck);
+  return a.every((s, i) => s.studentId === b[i].studentId && s.text === b[i].text && !!s.struck === !!b[i].struck && s.struckBy === b[i].struckBy);
 }
 
 /** "Base text from `start` to `end` was replaced by `insert`." */
@@ -113,12 +114,16 @@ export function mergeSegments(base: Segment[], local: Segment[], remote: Segment
  * author's colour), so the writers can see what was there. The reviewer's own words are really removed, and words that
  * are already struck through stay as they are. Line breaks are not kept (paragraphs simply join).
  */
-function strikeRemoved(removed: Segment[], authorId: string): Segment[] {
+function strikeRemoved(removed: Segment[], authorId: string, deleterColor?: number): Segment[] {
   const out: Segment[] = [];
   for (const s of removed) {
     if (s.studentId === authorId && !s.struck) continue;
     const text = s.text.split("\n").join("");
-    if (text) out.push({ ...s, text, struck: true });
+    if (!text) continue;
+    // Words the teacher deletes turn red; words that were already struck through keep whatever they had.
+    if (s.struck) out.push({ ...s, text });
+    else if (deleterColor !== undefined) out.push({ ...s, text, struck: true, struckBy: deleterColor });
+    else out.push({ ...s, text, struck: true });
   }
   return normalize(out);
 }
@@ -262,7 +267,7 @@ export function applyEdit(segs: Segment[], newText: string, caret: number, autho
   };
   for (const h of hunks) {
     copyOld(head + h.oldFrom);
-    const struck = track ? strikeRemoved(sliceSegs(segs, head + h.oldFrom, head + h.oldTo), author.studentId) : [];
+    const struck = track ? strikeRemoved(sliceSegs(segs, head + h.oldFrom, head + h.oldTo), author.studentId, isTeacherColor(author.colorIndex) ? author.colorIndex : undefined) : [];
     const keptLen = segmentsText(struck).length;
     if (keptLen > 0) {
       out.push(...struck);

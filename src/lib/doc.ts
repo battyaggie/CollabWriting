@@ -71,7 +71,7 @@ export function editParagraphs(
 
 function sameSegments(a: Segment[], b: Segment[]): boolean {
   if (a.length !== b.length) return false;
-  return a.every((s, i) => s.studentId === b[i].studentId && s.text === b[i].text && !!s.struck === !!b[i].struck);
+  return a.every((s, i) => s.studentId === b[i].studentId && s.text === b[i].text && !!s.struck === !!b[i].struck && s.struckBy === b[i].struckBy);
 }
 
 export interface PlannedRun {

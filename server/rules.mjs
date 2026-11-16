@@ -88,7 +88,13 @@ export const firestoreRules = {
           break;
         case "feedback":
           if (op === "create") ok = signedIn && next.studentId === uid && isOpen(c.classId);
-          else if (op === "update") ok = signedIn && isOpen(c.classId) && (cur.studentId === uid || isTeacherOf(c.classId));
+          else if (op === "update") {
+            // Anyone in the class may tick a comment as done: only the "done" fields change.
+            const onlyDone = [...new Set([...Object.keys(cur), ...Object.keys(next)])]
+              .filter((k) => JSON.stringify(cur[k]) !== JSON.stringify(next[k]))
+              .every((k) => k === "done" || k === "doneAt");
+            ok = signedIn && isOpen(c.classId) && (cur.studentId === uid || isTeacherOf(c.classId) || onlyDone);
+          }
           else ok = signedIn && ((cur.studentId === uid && isOpen(c.classId)) || isTeacherOf(c.classId));
           break;
       }

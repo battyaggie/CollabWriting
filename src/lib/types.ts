@@ -62,6 +62,8 @@ export interface Segment {
   text: string;
   /** Set (only ever to true) when the teacher deleted this text: it stays visible, struck through. */
   struck?: boolean;
+  /** Colour of who deleted it, set only when the teacher deleted it (shown in the teacher's red instead of the writer's colour). */
+  struckBy?: number;
 }
 
 export interface RunDoc {
@@ -93,6 +95,9 @@ export interface FeedbackDoc {
   /** ...and where they were in the text (character positions) when the comment was made. */
   start?: number;
   end?: number;
+  /** Ticked by the group the comment is about when they have dealt with it (done / accepted / changed). */
+  done?: boolean;
+  doneAt?: number;
 }
 
 export interface StudentSession {

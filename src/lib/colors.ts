@@ -30,3 +30,8 @@ export function colorFor(index: number): string {
   if (index === TEACHER_COLOR_INDEX) return TEACHER_COLOR;
   return STUDENT_COLORS[((index % STUDENT_COLORS.length) + STUDENT_COLORS.length) % STUDENT_COLORS.length];
 }
+
+/** The colour a piece of text is shown in: the writer's, except text the teacher deleted, which is shown in the teacher's red. */
+export function segmentColor(seg: { colorIndex: number; struck?: boolean; struckBy?: number }): string {
+  return colorFor(seg.struck && seg.struckBy !== undefined ? seg.struckBy : seg.colorIndex);
+}

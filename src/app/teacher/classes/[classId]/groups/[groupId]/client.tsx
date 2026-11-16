@@ -171,6 +171,7 @@ export default function TeacherGroupFeedbackPage() {
                 alias={TEACHER_ALIAS}
                 colorIndex={TEACHER_COLOR_INDEX}
                 readOnly={closed}
+                newestFirst
               />
             </div>
           </>

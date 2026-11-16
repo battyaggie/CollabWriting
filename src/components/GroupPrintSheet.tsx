@@ -1,4 +1,4 @@
-import { colorFor, isTeacherColor } from "@/lib/colors";
+import { colorFor, isTeacherColor, segmentColor } from "@/lib/colors";
 import { runSegments } from "@/lib/segments";
 import type { ClassDoc, FeedbackDoc, GroupDoc, RunDoc } from "@/lib/types";
 
@@ -92,7 +92,7 @@ export function GroupPrintSheet({ classData, group, allRuns, feedback, memberIds
                   <br />
                 ) : (
                   para.segments.map((seg, j) => (
-                    <span key={j} style={{ color: colorFor(seg.colorIndex), ...(seg.struck ? { textDecoration: "line-through" } : {}) }}>
+                    <span key={j} style={{ color: segmentColor(seg), ...(seg.struck ? { textDecoration: "line-through" } : {}) }}>
                       {seg.text}
                     </span>
                   ))
@@ -120,7 +120,7 @@ export function GroupPrintSheet({ classData, group, allRuns, feedback, memberIds
               <br />
             ) : (
               runSegments(r).map((seg, j) => (
-                <span key={j} style={{ color: colorFor(seg.colorIndex), ...(seg.struck ? { textDecoration: "line-through" } : {}) }}>
+                <span key={j} style={{ color: segmentColor(seg), ...(seg.struck ? { textDecoration: "line-through" } : {}) }}>
                   {seg.text}
                 </span>
               ))

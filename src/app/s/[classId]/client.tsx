@@ -26,7 +26,8 @@ export default function StudentClassPage() {
   const reviewsId = ownGroupId ? groups[ownGroupId]?.reviewsGroupId ?? null : null;
   // Comments on highlighted words: marked in the text of the group they are about.
   const ownEntries = useFeedbackEntries(classId, ownGroupId);
-  const ownAnchors = anchorsOf(ownEntries);
+  // Comments the group has ticked as done no longer mark the text.
+  const ownAnchors = anchorsOf(ownEntries.filter((e) => !e.done));
   const hasTeacherComments = ownEntries.some((e) => isTeacherColor(e.colorIndex));
   const reviewAnchors = anchorsOf(useFeedbackEntries(classId, reviewsId));
 
@@ -284,6 +285,8 @@ export default function StudentClassPage() {
               colorIndex={student.colorIndex}
               teacherOnly
               readOnly
+              newestFirst
+              canTick={!closed}
             />
           </div>
         )}
@@ -367,6 +370,8 @@ export default function StudentClassPage() {
               alias={session.alias}
               colorIndex={student.colorIndex}
               readOnly
+              newestFirst
+              canTick={!closed}
             />
           </div>
         )}

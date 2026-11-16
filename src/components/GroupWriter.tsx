@@ -13,7 +13,7 @@ import {
   type QuerySnapshot,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { colorFor } from "@/lib/colors";
+import { colorFor, segmentColor } from "@/lib/colors";
 import { editParagraphs, flatten, mergeRemote, planChanges, resolveAnchor, splitParagraphs, withSegments, type Anchor, type Plan } from "@/lib/doc";
 import { recordEdit, undoOnto, type HistoryEntry } from "@/lib/undo";
 import { mergeSegments, runSegments, sameSegs, segmentsText } from "@/lib/segments";
@@ -175,14 +175,14 @@ function domSig(el: HTMLElement): Sig {
     if (n.nodeType === Node.TEXT_NODE) parts.push([null, n.textContent ?? ""]);
     else if (n instanceof HTMLElement) {
       const who = n.dataset.s;
-      parts.push([who == null ? null : who + (n.dataset.x ? "~" : ""), n.textContent ?? ""]);
+      parts.push([who == null ? null : who + (n.dataset.x ? "~" + (n.dataset.y ?? "") : ""), n.textContent ?? ""]);
     }
   });
   return mergeSig(parts);
 }
 
 function segSig(segs: Segment[]): Sig {
-  return mergeSig(segs.map((s) => [s.studentId + (s.struck ? "~" : ""), s.text] as [string | null, string]));
+  return mergeSig(segs.map((s) => [s.studentId + (s.struck ? "~" + (s.struckBy ?? "") : ""), s.text] as [string | null, string]));
 }
 
 /** Rebuilds a paragraph element as one coloured span per author. */
@@ -192,9 +192,10 @@ function renderSegments(el: HTMLElement, segs: Segment[]) {
     const span = document.createElement("span");
     span.dataset.s = seg.studentId;
     span.title = seg.struck ? `${seg.alias} (deleted)` : seg.alias;
-    span.style.color = colorFor(seg.colorIndex);
+    span.style.color = segmentColor(seg);
     if (seg.struck) {
       span.dataset.x = "1";
+      if (seg.struckBy !== undefined) span.dataset.y = String(seg.struckBy);
       span.style.textDecoration = "line-through";
       span.style.opacity = "0.75";
     }
@@ -321,7 +322,7 @@ function ReadOnlyText({ runs, className, emptyClass }: { runs: Run[]; className:
               <span
                 key={i}
                 style={{
-                  color: colorFor(seg.colorIndex),
+                  color: segmentColor(seg),
                   ...(seg.struck ? { textDecoration: "line-through", opacity: 0.75 } : {}),
                 }}
                 title={seg.struck ? `${seg.alias} (deleted)` : seg.alias}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { addDoc, collection, onSnapshot, orderBy, query } from "firebase/firestore";
+import { addDoc, collection, doc, onSnapshot, orderBy, query, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { colorFor, isTeacherColor } from "@/lib/colors";
 import type { Anchor } from "@/lib/doc";
@@ -19,6 +19,10 @@ interface Props {
   teacherOnly?: boolean;
   /** stamped on every comment posted here, and used to show only that kind (peer also shows older, untagged entries) */
   kind?: FeedbackKind;
+  /** newest comment first (default: oldest first) */
+  newestFirst?: boolean;
+  /** show a "done" tick on every comment, for the group the comments are about */
+  canTick?: boolean;
 }
 
 export type FeedbackEntry = FeedbackDoc & { id: string };
@@ -127,10 +131,19 @@ export function CommentComposer({ classId, groupId, studentId, alias, colorIndex
   );
 }
 
-export function FeedbackThread({ classId, groupId, studentId, alias, colorIndex, readOnly, teacherOnly, kind }: Props) {
+export function FeedbackThread({ classId, groupId, studentId, alias, colorIndex, readOnly, teacherOnly, kind, newestFirst, canTick }: Props) {
   const all = useFeedbackEntries(classId, groupId);
   const ofKind = kind ? all.filter((e) => (kind === "hotseat" ? e.kind === "hotseat" : e.kind !== "hotseat")) : all;
-  const entries = teacherOnly ? ofKind.filter((e) => isTeacherColor(e.colorIndex)) : ofKind;
+  const filtered = teacherOnly ? ofKind.filter((e) => isTeacherColor(e.colorIndex)) : ofKind;
+  const entries = newestFirst ? [...filtered].reverse() : filtered;
+  const doneCount = filtered.filter((e) => e.done).length;
+
+  async function setDone(entryId: string, done: boolean) {
+    await updateDoc(doc(db, "classes", classId, "groups", groupId, "feedback", entryId), {
+      done,
+      doneAt: done ? Date.now() : 0,
+    });
+  }
   const [draft, setDraft] = useState("");
   const [savedAt, setSavedAt] = useState<Date | null>(null);
 
@@ -151,6 +164,11 @@ export function FeedbackThread({ classId, groupId, studentId, alias, colorIndex,
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-0">
+        {canTick && entries.length > 0 && (
+          <p className="text-sm text-tw-grey m-0 mb-1">
+            Tick a comment when you have dealt with it. <strong>{doneCount} of {entries.length}</strong> done.
+          </p>
+        )}
         {entries.length === 0 && (
           <p className="text-sm text-tw-grey italic">
             {teacherOnly ? "No comments from your teacher yet." : "No feedback yet."}
@@ -159,7 +177,7 @@ export function FeedbackThread({ classId, groupId, studentId, alias, colorIndex,
         {entries.map((entry, i) => (
           <div
             key={entry.id}
-            className={`py-4 ${i > 0 ? "border-t border-tw-border" : ""}`}
+            className={`py-4 ${i > 0 ? "border-t border-tw-border" : ""} ${canTick && entry.done ? "opacity-60" : ""}`}
           >
             <div className="flex items-center gap-2 mb-1.5">
               <span
@@ -172,6 +190,17 @@ export function FeedbackThread({ classId, groupId, studentId, alias, colorIndex,
               >
                 {entry.alias}
               </span>
+              {canTick && (
+                <label className="ml-auto flex items-center gap-1.5 text-sm text-tw-navy cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={!!entry.done}
+                    onChange={(e) => void setDone(entry.id, e.target.checked)}
+                    aria-label="Mark this comment as done"
+                  />
+                  Done / changed
+                </label>
+              )}
             </div>
             {entry.quote && <QuotedText quote={entry.quote} />}
             <p className="m-0 text-[15px] leading-relaxed">{entry.text}</p>
