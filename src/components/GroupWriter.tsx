@@ -14,7 +14,8 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { colorFor } from "@/lib/colors";
-import { editParagraphs, mergeRemote, planChanges, resolveAnchor, withSegments, type Anchor, type Plan } from "@/lib/doc";
+import { editParagraphs, flatten, mergeRemote, planChanges, resolveAnchor, splitParagraphs, withSegments, type Anchor, type Plan } from "@/lib/doc";
+import { recordEdit, undoOnto, type HistoryEntry } from "@/lib/undo";
 import { mergeSegments, runSegments, sameSegs, segmentsText } from "@/lib/segments";
 import type { RunDoc, Segment } from "@/lib/types";
 
@@ -348,6 +349,9 @@ export function GroupWriter(props: Props) {
   const [saveError, setSaveError] = useState(false);
   const [selBtn, setSelBtn] = useState<{ top: number; left: number } | null>(null);
   const [composing, setComposing] = useState<(Anchor & { top: number }) | null>(null);
+  /** Steps that can be undone / redone, and a short message when a step could not be taken back. */
+  const [history, setHistory] = useState({ undo: 0, redo: 0 });
+  const [notice, setNotice] = useState("");
 
   const rootRef = useRef<HTMLDivElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -373,6 +377,10 @@ export function GroupWriter(props: Props) {
   const composingRef = useRef<(Anchor & { top: number }) | null>(null);
   const anchorsRef = useRef(anchors);
   const idsRef = useRef({ classId, groupId });
+  /** This browser's own editing steps (the browser's built-in undo does not survive the text being redrawn). */
+  const undoStack = useRef<HistoryEntry[]>([]);
+  const redoStack = useRef<HistoryEntry[]>([]);
+  const stepRef = useRef<(dir: "undo" | "redo") => void>(() => {});
 
   idsRef.current = { classId, groupId };
   anchorsRef.current = anchors;
@@ -538,7 +546,10 @@ export function GroupWriter(props: Props) {
     const onBeforeInput = (e: Event) => {
       const t = (e as InputEvent).inputType ?? "";
       inputTypeRef.current = t;
-      if (t.startsWith("format") || t === "insertFromDrop" || t === "deleteByDrag") {
+      if (t === "historyUndo" || t === "historyRedo") {
+        e.preventDefault();
+        stepRef.current(t === "historyUndo" ? "undo" : "redo");
+      } else if (t.startsWith("format") || t === "insertFromDrop" || t === "deleteByDrag") {
         e.preventDefault();
       } else if (t === "insertLineBreak") {
         e.preventDefault();
@@ -689,6 +700,12 @@ export function GroupWriter(props: Props) {
       });
   }
 
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(""), 5000);
+    return () => clearTimeout(t);
+  }, [notice]);
+
   /* ----- typing ----- */
 
   /** Called after every change in the box (typing, deleting, pasting, Enter...). */
@@ -711,6 +728,30 @@ export function GroupWriter(props: Props) {
       !!trackChanges
     );
     const nextParas = edit.paras;
+    const before = flatten(model.map((r) => r.segments));
+    const plan = commitParas(nextParas);
+    const kind = inputTypeRef.current.startsWith("delete") ? "del" : "ins";
+    recordEdit(undoStack.current, before, flatten(nextParas), kind, Date.now());
+    redoStack.current = [];
+    setHistory({ undo: undoStack.current.length, redo: 0 });
+
+    // Colour each paragraph by who wrote what, and give each its id.
+    let rebuilt = false;
+    (Array.from(root.children) as HTMLElement[]).forEach((div, k) => {
+      const pr = plan.runs[k];
+      if (!pr) return;
+      div.dataset.run = pr.id;
+      if (syncElement(div, pr.segments)) rebuilt = true;
+    });
+    if (rebuilt) placeCaret(root, caret + edit.caretShift);
+    refreshHighlights();
+    persist(plan);
+  }
+
+  /** Makes `nextParas` this browser's text (model and screen state), and returns what has to be saved. */
+  function commitParas(nextParas: Segment[][]): Plan {
+    const model = modelRef.current;
+    const author = { studentId, alias, colorIndex };
     const newId = () => doc(runsCol()).id;
     const plan = planChanges(model, nextParas, newId);
 
@@ -730,18 +771,11 @@ export function GroupWriter(props: Props) {
     });
     modelRef.current = next;
     setRuns(next);
+    return plan;
+  }
 
-    // Colour each paragraph by who wrote what, and give each its id.
-    let rebuilt = false;
-    (Array.from(root.children) as HTMLElement[]).forEach((div, k) => {
-      const pr = plan.runs[k];
-      if (!pr) return;
-      div.dataset.run = pr.id;
-      if (syncElement(div, pr.segments)) rebuilt = true;
-    });
-    if (rebuilt) placeCaret(root, caret + edit.caretShift);
-    refreshHighlights();
-
+  /** Saves what a plan changed. */
+  function persist(plan: Plan) {
     const structural = plan.deletes.length > 0 || plan.runs.some((r) => r.kind === "create" || r.orderChanged);
     if (structural) {
       writeStructure(plan);
@@ -754,6 +788,32 @@ export function GroupWriter(props: Props) {
       });
     }
   }
+
+  /**
+   * Takes back (or redoes) this person's last editing step. Other people's changes made since stay; if somebody changed
+   * the very same words, nothing is changed and a message says so.
+   */
+  function stepHistory(dir: "undo" | "redo") {
+    if (!loadedRef.current || imeRef.current) return;
+    const from = dir === "undo" ? undoStack.current : redoStack.current;
+    const to = dir === "undo" ? redoStack.current : undoStack.current;
+    const entry = from[from.length - 1];
+    if (!entry) return;
+    const current = flatten(modelRef.current.map((r) => r.segments));
+    const target = undoOnto(dir === "undo" ? entry : { before: entry.after, after: entry.before }, current);
+    if (!target) {
+      setNotice("Someone else has changed those words since, so this can't be undone.");
+      return;
+    }
+    from.pop();
+    to.push(entry);
+    setNotice("");
+    const plan = commitParas(splitParagraphs(target));
+    syncDom();
+    persist(plan);
+    setHistory({ undo: undoStack.current.length, redo: redoStack.current.length });
+  }
+  stepRef.current = stepHistory;
 
   function onPaste(e: React.ClipboardEvent<HTMLDivElement>) {
     e.preventDefault();
@@ -799,6 +859,27 @@ export function GroupWriter(props: Props) {
           line; leave an empty line for a new paragraph.
         </span>
         <span className="flex items-center gap-3 whitespace-nowrap">
+          {notice && <span className="text-[#C1440E]">{notice}</span>}
+          <button
+            type="button"
+            className="tw-btn tw-btn-secondary text-xs px-3 py-1"
+            disabled={history.undo === 0}
+            title="Take back your last change (Ctrl/Cmd + Z). Other people's changes stay."
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => stepHistory("undo")}
+          >
+            &#8630; Undo last change
+          </button>
+          <button
+            type="button"
+            className="tw-btn tw-btn-secondary text-xs px-3 py-1"
+            disabled={history.redo === 0}
+            title="Put back what you just took back (Ctrl/Cmd + Shift + Z)"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => stepHistory("redo")}
+          >
+            &#8631; Redo
+          </button>
           <span className="font-bold text-tw-navy" aria-live="polite">
             {wordCount} {wordCount === 1 ? "word" : "words"}
           </span>
@@ -839,6 +920,15 @@ export function GroupWriter(props: Props) {
             if (waiting) {
               pendingSnapRef.current = null;
               applySnapRef.current(waiting);
+            }
+          }}
+          onKeyDown={(e) => {
+            // The browser's own undo cannot work here (the text is redrawn all the time), so use this one.
+            if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+            const k = e.key.toLowerCase();
+            if (k === "z" || k === "y") {
+              e.preventDefault();
+              stepHistory(k === "y" || e.shiftKey ? "redo" : "undo");
             }
           }}
           onPaste={onPaste}
