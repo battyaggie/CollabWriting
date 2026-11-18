@@ -35,3 +35,12 @@ export const listAllowed = () => call<{ rows: AllowedTeacher[]; admins: string[]
 export const addAllowed = (emails: string[]) => call<{ results: AddResult[] }>("add", { emails });
 export const removeAllowed = (email: string) => call<{ removed: string }>("remove", { email });
 export const approveExisting = () => call<{ added: number }>("approve-existing");
+
+/** Is the signed-in teacher an administrator? Any problem counts as "no", so the link simply does not show. */
+export async function amIAdmin(): Promise<boolean> {
+  try {
+    return (await call<{ admin: boolean }>("whoami")).admin === true;
+  } catch {
+    return false;
+  }
+}
