@@ -43,9 +43,10 @@ export async function POST(req: Request) {
     return reply(401, "unauthenticated", "Please sign in again.");
   }
   const callerEmail = (caller.email ?? "").toLowerCase();
-  if (caller.firebase?.sign_in_provider !== "password" || !admins.includes(callerEmail)) {
-    return reply(403, "denied", "This is for administrators only.");
-  }
+  const callerIsAdmin = caller.firebase?.sign_in_provider === "password" && admins.includes(callerEmail);
+  // Any signed-in teacher may ask whether they are an administrator (the class list shows the admin link if so).
+  if (body.action === "whoami") return NextResponse.json({ admin: callerIsAdmin });
+  if (!callerIsAdmin) return reply(403, "denied", "This is for administrators only.");
 
   const list = db.collection("teacherAllowlist");
 

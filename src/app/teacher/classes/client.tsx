@@ -7,6 +7,7 @@ import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { isLocalBackend } from "@/lib/backend";
+import { amIAdmin } from "@/lib/teacherAccess";
 import { DeletePanel } from "@/components/DeletePanel";
 import { deleteCourse, deleteExercise } from "@/lib/deleteClass";
 import type { ClassDoc, CourseDoc } from "@/lib/types";
@@ -28,15 +29,25 @@ export default function MyClassesPage() {
   const [deleting, setDeleting] = useState<string | null>(null);
 
   useEffect(() => {
+    let alive = true;
     const unsub = onAuthStateChanged(auth, (user) => {
       if (!user) {
         router.replace("/teacher/login");
         return;
       }
       setUid(user.uid);
+      // Container version: the account says it. Vercel version: the server decides (the address is in ADMIN_EMAIL).
       setIsAdmin(!!(user as unknown as { isAdmin?: boolean }).isAdmin);
+      if (!isLocalBackend) {
+        amIAdmin().then((yes) => {
+          if (alive) setIsAdmin(yes);
+        });
+      }
     });
-    return () => unsub();
+    return () => {
+      alive = false;
+      unsub();
+    };
   }, [router]);
 
   useEffect(() => {
@@ -94,7 +105,7 @@ export default function MyClassesPage() {
             <h1 className="font-display text-2xl text-tw-navy m-0">My Classes</h1>
           </div>
           <div className="flex items-center gap-5">
-            {isLocalBackend && isAdmin && (
+            {isAdmin && (
               <Link href="/teacher/admin" className="text-sm text-tw-blue underline">
                 Teacher accounts
               </Link>
