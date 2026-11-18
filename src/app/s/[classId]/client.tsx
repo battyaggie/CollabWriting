@@ -8,7 +8,7 @@ import { GroupWriter } from "@/components/GroupWriter";
 import { ColorPicker } from "@/components/ColorPicker";
 import { WaitingScreen } from "@/components/WaitingScreen";
 import { CommentComposer, FeedbackThread, anchorsOf, useFeedbackEntries } from "@/components/FeedbackThread";
-import { colorFor, isTeacherColor } from "@/lib/colors";
+import { colorFor } from "@/lib/colors";
 import { hasSessionFor, useOpenExercises } from "@/lib/openExercises";
 import type { ClassDoc, GroupDoc, StudentDoc, StudentSession } from "@/lib/types";
 
@@ -27,7 +27,7 @@ export default function StudentClassPage() {
   // Comments on highlighted words: marked in the text of the group they are about.
   const ownEntries = useFeedbackEntries(classId, ownGroupId);
   const ownAnchors = anchorsOf(ownEntries);
-  const hasTeacherComments = ownEntries.some((e) => isTeacherColor(e.colorIndex));
+  const hasFeedback = ownEntries.some((e) => e.kind !== "hotseat");
   const reviewAnchors = anchorsOf(useFeedbackEntries(classId, reviewsId));
 
   useEffect(() => {
@@ -243,12 +243,13 @@ export default function StudentClassPage() {
           />
         )}
 
-        {activeTab === "write" && hasTeacherComments && (
+        {activeTab === "write" && (
           <div className="bg-white border border-tw-grey-light rounded-xl p-8">
-            <h2 className="font-display text-lg text-tw-navy mt-0 mb-1">Comments from your teacher</h2>
+            <h2 className="font-display text-lg text-tw-navy mt-0 mb-1">Feedback on our writing</h2>
             <p className="text-sm text-tw-grey mt-0 mb-5">
-              Your teacher&rsquo;s corrections in your text and these comments are shown in red. Comments about
-              particular words are highlighted in your text.
+              {hasFeedback
+                ? "Comments from your teacher and from the group reviewing your text. Your teacher\u2019s corrections and comments are shown in red; corrections by other students show in their colours. Comments about particular words are highlighted in your text."
+                : "Comments from your teacher and from the group reviewing your text will appear here."}
             </p>
             <FeedbackThread
               classId={classId}
@@ -256,7 +257,7 @@ export default function StudentClassPage() {
               studentId={session.studentId}
               alias={session.alias}
               colorIndex={student.colorIndex}
-              teacherOnly
+              kind="peer"
               readOnly
             />
           </div>
@@ -326,21 +327,6 @@ export default function StudentClassPage() {
               colorIndex={student.colorIndex}
               readOnly={isHotSeat || closed}
               kind="hotseat"
-            />
-          </div>
-        )}
-
-        {activeTab === "feedback" && !isHotSeat && (
-          <div className="bg-white border border-tw-grey-light rounded-xl p-8">
-            <h2 className="font-display text-lg text-tw-navy mt-0 mb-1">Feedback on your group&rsquo;s writing</h2>
-            <p className="text-sm text-tw-grey mt-0 mb-5">What other groups have said about your text so far.</p>
-            <FeedbackThread
-              classId={classId}
-              groupId={student.groupId}
-              studentId={session.studentId}
-              alias={session.alias}
-              colorIndex={student.colorIndex}
-              readOnly
             />
           </div>
         )}
