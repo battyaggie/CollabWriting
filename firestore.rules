@@ -85,8 +85,10 @@ service cloud.firestore {
           allow create: if isSignedIn() && request.resource.data.studentId == request.auth.uid && isOpen(classId);
           // Only the author (or the teacher, for moderation) can edit/delete a
           // feedback comment -- authorship matters here for grading.
+          // Anyone in the class may tick a comment as done: that changes nothing but the two "done" fields.
           allow update: if isSignedIn() && isOpen(classId) &&
-            (resource.data.studentId == request.auth.uid || isTeacherOf(classId));
+            (resource.data.studentId == request.auth.uid || isTeacherOf(classId) ||
+             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['done', 'doneAt']));
           allow delete: if isSignedIn() &&
             ((resource.data.studentId == request.auth.uid && isOpen(classId)) || isTeacherOf(classId));
         }

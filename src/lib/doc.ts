@@ -47,10 +47,21 @@ export function editParagraphs(
   const oldFlat = flatten(oldParas.length ? oldParas : [[]]);
   const r = applyEdit(oldFlat, newText, caret, author, track);
   let next = r.segs;
-  let caretShift = r.insertedLen > 0 || forward ? r.keptLen : 0;
+  // Struck-through words that stayed sit in the text but not in the box: the caret has to move past those in front of it
+  // (a stretch exactly at the caret only when the delete key was used, so the caret goes after it instead of before).
+  let caretShift = 0;
+  for (const k of r.kept) if (k.at < caret || (k.at === caret && forward)) caretShift += k.len;
   // The text without the words that stayed struck through must be exactly what is in the box.
   const all = segmentsText(next);
-  const visible = all.slice(0, r.keptAt) + all.slice(r.keptAt + r.keptLen);
+  let visible = "";
+  let from = 0;
+  let skipped = 0;
+  for (const k of r.kept) {
+    visible += all.slice(from, k.at + skipped);
+    from = k.at + skipped + k.len;
+    skipped += k.len;
+  }
+  visible += all.slice(from);
   if (visible !== newText) {
     next = newText ? [{ ...author, text: newText }] : [];
     caretShift = 0;
@@ -60,7 +71,7 @@ export function editParagraphs(
 
 function sameSegments(a: Segment[], b: Segment[]): boolean {
   if (a.length !== b.length) return false;
-  return a.every((s, i) => s.studentId === b[i].studentId && s.text === b[i].text && !!s.struck === !!b[i].struck);
+  return a.every((s, i) => s.studentId === b[i].studentId && s.text === b[i].text && !!s.struck === !!b[i].struck && s.struckBy === b[i].struckBy);
 }
 
 export interface PlannedRun {

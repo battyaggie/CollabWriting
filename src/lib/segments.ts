@@ -1,3 +1,4 @@
+import { isTeacherColor } from "./colors";
 import type { RunDoc, Segment } from "./types";
 
 export type Author = Pick<Segment, "studentId" | "alias" | "colorIndex">;
@@ -8,7 +9,7 @@ export function normalize(segs: Segment[]): Segment[] {
   for (const s of segs) {
     if (!s.text) continue;
     const last = out[out.length - 1];
-    if (last && last.studentId === s.studentId && !!last.struck === !!s.struck) {
+    if (last && last.studentId === s.studentId && !!last.struck === !!s.struck && last.struckBy === s.struckBy) {
       out[out.length - 1] = { ...last, text: last.text + s.text };
     } else {
       out.push({ ...s });
@@ -49,7 +50,7 @@ export function splitAt(segs: Segment[], offset: number): [Segment[], Segment[]]
 /** True if both paragraphs have the same text written by the same people. */
 export function sameSegs(a: Segment[], b: Segment[]): boolean {
   if (a.length !== b.length) return false;
-  return a.every((s, i) => s.studentId === b[i].studentId && s.text === b[i].text && !!s.struck === !!b[i].struck);
+  return a.every((s, i) => s.studentId === b[i].studentId && s.text === b[i].text && !!s.struck === !!b[i].struck && s.struckBy === b[i].struckBy);
 }
 
 /** "Base text from `start` to `end` was replaced by `insert`." */
@@ -113,21 +114,110 @@ export function mergeSegments(base: Segment[], local: Segment[], remote: Segment
  * author's colour), so the writers can see what was there. The reviewer's own words are really removed, and words that
  * are already struck through stay as they are. Line breaks are not kept (paragraphs simply join).
  */
-function strikeRemoved(removed: Segment[], authorId: string): Segment[] {
+function strikeRemoved(removed: Segment[], authorId: string, deleterColor?: number): Segment[] {
   const out: Segment[] = [];
   for (const s of removed) {
     if (s.studentId === authorId && !s.struck) continue;
     const text = s.text.split("\n").join("");
-    if (text) out.push({ ...s, text, struck: true });
+    if (!text) continue;
+    // Words the teacher deletes turn red; words that were already struck through keep whatever they had.
+    if (s.struck) out.push({ ...s, text });
+    else if (deleterColor !== undefined) out.push({ ...s, text, struck: true, struckBy: deleterColor });
+    else out.push({ ...s, text, struck: true });
   }
   return normalize(out);
 }
 
+/** The part of `segs` between two character offsets; authorship of every character is kept. */
+function sliceSegs(segs: Segment[], from: number, to: number): Segment[] {
+  const [, rest] = splitAt(segs, from);
+  return splitAt(rest, to - from)[0];
+}
+
+/** A stretch that changed: old characters [oldFrom, oldTo) were replaced by new characters [newFrom, newTo). */
+interface Hunk {
+  oldFrom: number;
+  oldTo: number;
+  newFrom: number;
+  newTo: number;
+}
+
+/** Words, runs of spaces, and single punctuation marks. */
+function tokenize(s: string): string[] {
+  return s.match(/[\p{L}\p{N}_]+|\s+|[^]/gu) ?? [];
+}
+
+/** Largest (old tokens x new tokens) comparison we do; bigger edits are treated as one replaced block. */
+const MAX_DIFF_CELLS = 250_000;
+
+/**
+ * Finds the stretches that really changed between two texts. Words that are the same on both sides stay unchanged,
+ * so when one edit touches several places (autocorrect, undo, a browser extension...) the text in between keeps its
+ * author. A matching stretch shorter than 3 characters (a lone space, "a") is not worth keeping apart: it is counted
+ * as changed, so a replaced phrase is not cut into confetti.
+ */
+function diffHunks(a: string, b: string): Hunk[] {
+  const whole: Hunk[] = a === b ? [] : [{ oldFrom: 0, oldTo: a.length, newFrom: 0, newTo: b.length }];
+  if (!a || !b || a === b) return whole;
+  const ta = tokenize(a);
+  const tb = tokenize(b);
+  const n = ta.length;
+  const m = tb.length;
+  if (n * m > MAX_DIFF_CELLS) return whole;
+
+  // Longest common subsequence of tokens.
+  const w = m + 1;
+  const lcs = new Uint32Array((n + 1) * w);
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      lcs[i * w + j] = ta[i] === tb[j] ? lcs[(i + 1) * w + j + 1] + 1 : Math.max(lcs[(i + 1) * w + j], lcs[i * w + j + 1]);
+    }
+  }
+  if (lcs[0] === 0) return whole;
+
+  // Character offset where each token starts.
+  const offA: number[] = [0];
+  for (const t of ta) offA.push(offA[offA.length - 1] + t.length);
+  const offB: number[] = [0];
+  for (const t of tb) offB.push(offB[offB.length - 1] + t.length);
+
+  // Walk through both, collecting runs of matching tokens.
+  const runs: { oldFrom: number; oldTo: number; newFrom: number; newTo: number }[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (ta[i] === tb[j]) {
+      const si = i;
+      const sj = j;
+      while (i < n && j < m && ta[i] === tb[j]) {
+        i++;
+        j++;
+      }
+      runs.push({ oldFrom: offA[si], oldTo: offA[i], newFrom: offB[sj], newTo: offB[j] });
+    } else if (lcs[(i + 1) * w + j] >= lcs[i * w + j + 1]) i++;
+    else j++;
+  }
+
+  const keep = runs.filter((r) => a.slice(r.oldFrom, r.oldTo).trim().length >= 3);
+  const hunks: Hunk[] = [];
+  let oi = 0;
+  let ni = 0;
+  for (const r of keep) {
+    if (r.oldFrom > oi || r.newFrom > ni) hunks.push({ oldFrom: oi, oldTo: r.oldFrom, newFrom: ni, newTo: r.newFrom });
+    oi = r.oldTo;
+    ni = r.newTo;
+  }
+  if (oi < a.length || ni < b.length) hunks.push({ oldFrom: oi, oldTo: a.length, newFrom: ni, newTo: b.length });
+  return hunks;
+}
+
 export interface EditResult {
   segs: Segment[];
-  /** Where (in the new text) the words kept as struck-through start, and how many characters they are. */
-  keptAt: number;
-  keptLen: number;
+  /**
+   * The words kept as struck-through: for each stretch, where (in the new text, i.e. without the struck words)
+   * it sits and how many characters it is. In order.
+   */
+  kept: { at: number; len: number }[];
   /** How many characters were typed or pasted in this edit. */
   insertedLen: number;
 }
@@ -137,6 +227,7 @@ export interface EditResult {
  * comparing the old paragraph text with the new one, then applies it to the segments:
  * inserted characters belong to `author`; removed characters disappear, except when `track` is on (a reviewer
  * correcting someone else's text): then other people's removed words stay, struck through.
+ * Text that is the same before and after keeps its author, even if the edit touched several places at once.
  *
  * `caret` is the caret position after the edit. Typing happens just before the caret,
  * so everything after the caret is unchanged; that pins the edit to the right place
@@ -144,7 +235,7 @@ export interface EditResult {
  */
 export function applyEdit(segs: Segment[], newText: string, caret: number, author: Author, track = false): EditResult {
   const oldText = segmentsText(segs);
-  if (oldText === newText) return { segs, keptAt: 0, keptLen: 0, insertedLen: 0 };
+  if (oldText === newText) return { segs, kept: [], insertedLen: 0 };
 
   let tail = newText.length - Math.min(Math.max(caret, 0), newText.length);
   if (tail > oldText.length || !oldText.endsWith(newText.slice(newText.length - tail))) {
@@ -159,15 +250,37 @@ export function applyEdit(segs: Segment[], newText: string, caret: number, autho
   const maxHead = Math.min(oldEnd, newEnd);
   while (head < maxHead && oldText[head] === newText[head]) head++;
 
-  const inserted = newText.slice(head, newEnd);
-  const [left, afterHead] = splitAt(segs, head);
-  const [, right] = splitAt(segs, oldEnd);
-  const kept = track ? strikeRemoved(splitAt(afterHead, oldEnd - head)[0], author.studentId) : [];
-  const middle: Segment[] = inserted ? [{ ...author, text: inserted }] : [];
-  return {
-    segs: normalize([...left, ...kept, ...middle, ...right]),
-    keptAt: head,
-    keptLen: segmentsText(kept).length,
-    insertedLen: inserted.length,
+  // Inside the stretch between head and tail, find what really changed (usually it is all one change).
+  const hunks = diffHunks(oldText.slice(head, oldEnd), newText.slice(head, newEnd));
+
+  const out: Segment[] = [];
+  const kept: { at: number; len: number }[] = [];
+  let insertedLen = 0;
+  let oldPos = 0; // how much of the old text is already in `out`
+  let visible = 0; // length of `out` without the struck words that were kept
+  const copyOld = (to: number) => {
+    if (to > oldPos) {
+      out.push(...sliceSegs(segs, oldPos, to));
+      visible += to - oldPos;
+      oldPos = to;
+    }
   };
+  for (const h of hunks) {
+    copyOld(head + h.oldFrom);
+    const struck = track ? strikeRemoved(sliceSegs(segs, head + h.oldFrom, head + h.oldTo), author.studentId, isTeacherColor(author.colorIndex) ? author.colorIndex : undefined) : [];
+    const keptLen = segmentsText(struck).length;
+    if (keptLen > 0) {
+      out.push(...struck);
+      kept.push({ at: visible, len: keptLen });
+    }
+    const inserted = newText.slice(head + h.newFrom, head + h.newTo);
+    if (inserted) {
+      out.push({ ...author, text: inserted });
+      visible += inserted.length;
+      insertedLen += inserted.length;
+    }
+    oldPos = head + h.oldTo;
+  }
+  copyOld(oldText.length);
+  return { segs: normalize(out), kept, insertedLen };
 }

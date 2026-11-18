@@ -1,5 +1,6 @@
 "use client";
 
+import { planRandomLinks } from "@/lib/matching";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { collection, doc, onSnapshot, orderBy, query, updateDoc, writeBatch } from "firebase/firestore";
@@ -26,6 +27,7 @@ export default function TeacherDashboardPage() {
   const [linkA, setLinkA] = useState("");
   const [linkB, setLinkB] = useState("");
   const [mutual, setMutual] = useState(true);
+  const [hotSeatPick, setHotSeatPick] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [confirmClose, setConfirmClose] = useState(false);
   const [groupsLoaded, setGroupsLoaded] = useState(false);
@@ -74,6 +76,11 @@ export default function TeacherDashboardPage() {
 
   async function project(groupId: string) {
     await updateDoc(doc(db, "classes", classId), { hotSeatGroupId: groupId });
+  }
+
+  /** Hot seat is off until the teacher starts it; stopping it hides the Hot Seat tab from all students. */
+  async function stopHotSeat() {
+    await updateDoc(doc(db, "classes", classId), { hotSeatGroupId: null });
   }
 
   async function setStatus(status: ClassDoc["status"]) {
@@ -190,27 +197,18 @@ export default function TeacherDashboardPage() {
       setMessage("You need at least two groups.");
       return;
     }
-    const shuffled = [...free].sort(() => Math.random() - 0.5);
-    const links: [string, string][] = []; // [reviewer, reviewed]
-    while (shuffled.length >= 2) {
-      const a = shuffled.pop()!;
-      const b = shuffled.pop()!;
-      links.push([a.id, b.id], [b.id, a.id]);
-    }
-    if (shuffled.length === 1) {
-      // an odd group out reviews a random other group
-      const lone = shuffled[0];
-      const others = groups.filter((g) => g.id !== lone.id);
-      const pick = others[Math.floor(Math.random() * others.length)];
-      links.push([lone.id, pick.id]);
-    }
+    const { links, uncovered } = planRandomLinks(groups);
     await saveOriginals(Array.from(new Set(links.map(([, reviewed]) => reviewed))));
     const batch = writeBatch(db);
     links.forEach(([reviewer, reviewed]) =>
       batch.update(doc(db, "classes", classId, "groups", reviewer), { reviewsGroupId: reviewed })
     );
     await batch.commit();
-    setMessage("Done: the remaining groups were matched at random.");
+    setMessage(
+      uncovered.length
+        ? `Matched at random, but ${uncovered.map(groupName).join(", ")} still get no feedback: too few groups were free. Link them by hand.`
+        : "Done: the remaining groups were matched at random, and every group gets feedback."
+    );
   }
 
   if (!classData) {
@@ -383,6 +381,52 @@ export default function TeacherDashboardPage() {
           {message && <p className="text-sm text-tw-green m-0">{message}</p>}
         </div>
 
+        <div className="bg-white border border-tw-grey-light rounded-xl p-6 flex flex-col gap-4">
+          <div>
+            <h2 className="font-display text-base text-tw-navy m-0">Hot seat (whole-class feedback)</h2>
+            <p className="text-sm text-tw-grey mt-1 mb-0">
+              {classData.hotSeatGroupId
+                ? "The hot seat is on: all students see a Hot Seat tab with the group on the projector. Use \u201cProject to Class\u201d on a group card to switch groups."
+                : "Off. Students do not see a Hot Seat tab until you start it. Most classes only need the group-to-group feedback above."}
+            </p>
+          </div>
+          {classData.hotSeatGroupId ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-sm text-tw-navy">
+                On the projector now: <strong>{groupName(classData.hotSeatGroupId)}</strong>
+              </span>
+              <a href={`/teacher/classes/${classId}/projector`} target="_blank" className="text-sm text-tw-blue">
+                Open Projector &rarr;
+              </a>
+              <span className="flex-1" />
+              <button className="tw-btn tw-btn-secondary" onClick={stopHotSeat}>
+                Stop hot seat feedback
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="flex flex-col gap-1 text-xs text-tw-grey">
+                Start with group
+                <select
+                  className="text-sm text-tw-navy border border-tw-grey-light rounded-md px-2 py-1.5 bg-white"
+                  value={hotSeatPick}
+                  onChange={(e) => setHotSeatPick(e.target.value)}
+                >
+                  <option value="">Choose&hellip;</option>
+                  {groups.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button className="tw-btn tw-btn-primary" disabled={!hotSeatPick} onClick={() => project(hotSeatPick)}>
+                Start hot seat feedback
+              </button>
+            </div>
+          )}
+        </div>
+
         <div className="grid grid-cols-2 gap-5">
           {groups.map((g) => {
             const isHot = classData.hotSeatGroupId === g.id;
@@ -450,22 +494,13 @@ export default function TeacherDashboardPage() {
                   >
                     Give feedback
                   </a>
-                  <button
-                    className={`text-sm ${isHot ? "font-bold text-tw-green" : "text-tw-blue"}`}
-                    onClick={() => project(g.id)}
-                  >
-                    {isHot ? "Projecting Now" : "Project to Class"}
-                  </button>
-                  {isHot && (
-                    <>
-                      <a
-                        href={`/teacher/classes/${classId}/projector`}
-                        target="_blank"
-                        className="text-sm text-tw-grey"
-                      >
-                        Open Projector →
-                      </a>
-                    </>
+                  {classData.hotSeatGroupId && (
+                    <button
+                      className={`text-sm ${isHot ? "font-bold text-tw-green" : "text-tw-blue"}`}
+                      onClick={() => project(g.id)}
+                    >
+                      {isHot ? "Projecting Now" : "Project to Class"}
+                    </button>
                   )}
                 </div>
               </div>

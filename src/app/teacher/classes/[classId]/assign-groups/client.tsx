@@ -115,7 +115,7 @@ export default function AssignGroupsPage() {
     if (groups.length === 0) return;
     await updateDoc(doc(db, "classes", classId), {
       status: "live",
-      hotSeatGroupId: groups[0].id,
+      hotSeatGroupId: null,
     });
     router.push(`/teacher/classes/${classId}/dashboard`);
   }
