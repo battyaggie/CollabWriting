@@ -226,7 +226,7 @@ export default function TeacherDashboardPage() {
   }
 
   /** Time's up: every group that is not yet linked gives feedback to the next group above it that nobody reviews yet. */
-  async function linkRestAtRandom() {
+  async function linkRestRoundRobin() {
     const active = groups.filter((g) => !isEmpty(g.id));
     if (active.length < 2) {
       setMessage("You need at least two groups with students.");
@@ -421,7 +421,7 @@ export default function TeacherDashboardPage() {
               Link groups
             </button>
             <span className="flex-1" />
-            <button className="tw-btn tw-btn-secondary" onClick={linkRestAtRandom}>
+            <button className="tw-btn tw-btn-secondary" onClick={linkRestRoundRobin}>
               Time&rsquo;s up &mdash; each group gives feedback to the next
             </button>
           </div>
