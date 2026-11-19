@@ -1,4 +1,4 @@
-# Container backend (work in progress)
+# Container backend
 
 This folder is the server for the **container version** of the Collaborative Writing App. It replaces
 what Firebase does in the Vercel version (sign-in, database, live updates) so everything can run on
@@ -26,8 +26,8 @@ in, so no screen had to change. The normal build (Vercel) is unaffected.
 - [x] Stage 1: database, live updates, transactions, anonymous student identity, tests
 - [x] Stage 2a: teacher accounts (request access, approval, Excel/CSV import, password links)
 - [x] Stage 2b: the access rules from `firestore.rules` in `rules.mjs` (keep both files in step; tests in `test/rules.test.mjs`)
-- [ ] Stage 3: Dockerfile and automatic image build
-- [ ] Stage 4: handover pack for IT (brief, settings, runbook)
+- [x] Stage 3: Dockerfile and automatic image build (`.github/workflows/container.yml`)
+- [x] Stage 4: handover pack for IT (`handover/`: brief, settings, runbook, security, data protection)
 
 ## Settings (environment variables)
 

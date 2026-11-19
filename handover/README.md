@@ -1,6 +1,6 @@
 # Collaborative Writing App: hosting brief for IT
 
-*Contact: Mark Adams (English, FH Technikum Wien) · Status: ready for a first install and test · 24 Oct 2026*
+*Contact: Mark Adams (English, FH Technikum Wien) · Status: ready for a first install and test · updated 19 Nov 2026*
 
 ## What it is
 A classroom tool for English lessons. Students on their own devices write one shared text in small groups,
@@ -46,7 +46,7 @@ Only one is required.
 - No changes to the application. Updates are a new image (see `RUNBOOK.md`).
 
 ## What you receive
-- The image file `collab-writing-image.tar.gz`, built by GitHub from the repository `battyaggie/CollabWriting`, branch `container-backend` (`docker load < collab-writing-image.tar.gz`). Every build runs the automatic tests and starts the image once as a check. Alternatively the same image is in GitHub's container registry.
+- The image file `collab-writing-image.tar.gz`, built by GitHub from the repository `battyaggie/CollabWriting` and attached to a numbered release (version tag, built from the `main` branch); the release address is given with the hand-over (`docker load < collab-writing-image.tar.gz`). Every build runs the automatic tests and starts the image once as a check. Alternatively the same image is in GitHub's container registry.
 - This folder: `RUNBOOK.md` (operation, updates, backup/restore), `SECURITY.md` (what it does and does not protect), `DATA-PROTECTION.md` (what personal data exists; for your data protection officer), `docker-compose.yml`, `kubernetes.example.yaml`, `nginx.example.conf`.
 - The full source code, if you want to review it. It has no dependencies on outside services; the server itself uses only what ships with Node.js.
 
