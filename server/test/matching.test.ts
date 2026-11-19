@@ -1,50 +1,106 @@
-// "Time's up" matching: every group reviews someone and every group gets reviewed.
+// "Time's up" matching: every group gives feedback to the next group above it.
 // Run with: npx tsx --test server/test/matching.test.ts
 import test from "node:test";
 import assert from "node:assert/strict";
-import { planRandomLinks, type MatchGroup } from "../../src/lib/matching";
+import { groupNumber, planRoundRobin, type MatchGroup } from "../../src/lib/matching";
 
-const make = (n: number, pre: Record<string, string> = {}): MatchGroup[] =>
-  Array.from({ length: n }, (_, i) => ({ id: `g${i + 1}`, reviewsGroupId: pre[`g${i + 1}`] ?? null }));
+const make = (n: number, pre: Record<string, string> = {}, empty: number[] = []): MatchGroup[] =>
+  Array.from({ length: n }, (_, i) => ({
+    id: `g${i + 1}`,
+    order: i + 1,
+    empty: empty.includes(i + 1),
+    reviewsGroupId: pre[`g${i + 1}`] ?? null,
+  }));
 
-function check(groups: MatchGroup[]) {
-  const { links, uncovered } = planRandomLinks(groups);
-  const final = new Map(groups.map((g) => [g.id, g.reviewsGroupId ?? null]));
-  links.forEach(([r, t]) => {
-    assert.equal(final.get(r), null, "a group that already had a link is not changed");
-    assert.notEqual(r, t, "no group reviews itself");
-    final.set(r, t);
-  });
-  groups.forEach((g) => assert.ok(final.get(g.id), `${g.id} reviews someone`));
-  const reviewed = new Set(final.values());
-  return { uncovered, missing: groups.filter((g) => !reviewed.has(g.id)).map((g) => g.id) };
-}
-
-test("2 to 9 groups, nothing linked: everyone reviews and is reviewed (many random runs)", () => {
-  for (let n = 2; n <= 9; n++)
-    for (let k = 0; k < 300; k++) assert.deepEqual(check(make(n)), { uncovered: [], missing: [] }, `n=${n}`);
+test("nothing linked: a circle in number order, the last group reviews the first", () => {
+  for (let n = 2; n <= 9; n++) {
+    const { links, uncovered } = planRoundRobin(make(n));
+    assert.deepEqual(uncovered, []);
+    assert.deepEqual(
+      links,
+      Array.from({ length: n }, (_, i) => [`g${i + 1}`, `g${(i + 1) % n + 1}`])
+    );
+  }
 });
 
-test("5 groups: the odd group is no longer left without feedback", () => {
-  for (let k = 0; k < 500; k++) assert.deepEqual(check(make(5)).missing, []);
+test("3 groups: 1 gives to 2, 2 gives to 3, 3 gives to 1", () => {
+  assert.deepEqual(planRoundRobin(make(3)).links, [["g1", "g2"], ["g2", "g3"], ["g3", "g1"]]);
 });
 
-test("groups linked by hand first: the others cover the unreviewed ones", () => {
-  // g1 and g2 review each other; g3, g4, g5 are free (g3..g5 must be reviewed too)
-  for (let k = 0; k < 500; k++)
-    assert.deepEqual(check(make(5, { g1: "g2", g2: "g1" })), { uncovered: [], missing: [] });
-  // g1 reviews g2 only: g1 itself and g3..g5 need reviewers; g2 is the only one already reviewed
-  for (let k = 0; k < 500; k++) assert.deepEqual(check(make(5, { g1: "g2" })).missing, []);
+test("the list order does not matter, the group number does", () => {
+  const shuffled = [...make(4)].reverse();
+  assert.deepEqual(planRoundRobin(shuffled).links.sort(), [["g1", "g2"], ["g2", "g3"], ["g3", "g4"], ["g4", "g1"]]);
 });
 
-test("too few free groups: says which groups still get no feedback instead of hiding it", () => {
-  // g1, g3, g4 all review g2; only g2 and g5 are free, but g1, g3, g4 and g5 all need a reviewer
-  const r = check(make(5, { g1: "g2", g3: "g2", g4: "g2" }));
-  assert.equal(r.missing.length, 2);
-  assert.deepEqual([...r.uncovered].sort(), [...r.missing].sort());
+test("an empty group is left out: it neither gives nor gets feedback", () => {
+  const plan = planRoundRobin(make(4, {}, [4]));
+  assert.deepEqual(plan.skippedEmpty, ["g4"]);
+  assert.deepEqual(plan.links, [["g1", "g2"], ["g2", "g3"], ["g3", "g1"]]);
+  const plan2 = planRoundRobin(make(5, {}, [2]));
+  assert.deepEqual(plan2.links, [["g1", "g3"], ["g3", "g4"], ["g4", "g5"], ["g5", "g1"]]);
 });
 
-test("everything already linked, or a single group: nothing to do", () => {
-  assert.deepEqual(planRandomLinks(make(3, { g1: "g2", g2: "g3", g3: "g1" })).links, []);
-  assert.deepEqual(planRandomLinks(make(1)).links, []);
+test("two finished groups linked first: the rest go round among themselves", () => {
+  const plan = planRoundRobin(make(6, { g1: "g2", g2: "g1" }));
+  assert.deepEqual(plan.links, [["g3", "g4"], ["g4", "g5"], ["g5", "g6"], ["g6", "g3"]]);
+});
+
+test("a link set by hand makes the groups above skip the covered group", () => {
+  // g2 reviews g4. Free: g1, g3, g4, g5. Needy: g1, g2, g3, g5.
+  const plan = planRoundRobin(make(5, { g2: "g4" }));
+  const final = new Map<string, string>([["g2", "g4"], ...plan.links]);
+  assert.deepEqual(plan.uncovered, []);
+  assert.equal(new Set(final.values()).size, 5);
+  assert.equal(final.get("g1"), "g2");
+  assert.equal(final.get("g3"), "g5");
+});
+
+test("a link to an empty group is ignored", () => {
+  const plan = planRoundRobin(make(4, { g1: "g4" }, [4]));
+  assert.deepEqual(plan.links, [["g1", "g2"], ["g2", "g3"], ["g3", "g1"]]);
+});
+
+test("many random situations: nobody reviews themselves, nobody is overwritten, everybody reviews, nobody is left out if it can be avoided", () => {
+  for (let k = 0; k < 20000; k++) {
+    const n = 1 + Math.floor(Math.random() * 12);
+    const empty = Array.from({ length: n }, (_, i) => i + 1).filter(() => Math.random() < 0.15);
+    const pre: Record<string, string> = {};
+    for (let i = 1; i <= n; i++)
+      if (Math.random() < 0.3) {
+        const t = 1 + Math.floor(Math.random() * n);
+        if (t !== i) pre[`g${i}`] = `g${t}`;
+      }
+    const groups = make(n, pre, empty);
+    const plan = planRoundRobin(groups);
+    const active = groups.filter((g) => !g.empty);
+    const keep = new Map<string, string>();
+    active.forEach((g) => {
+      if (g.reviewsGroupId && active.some((o) => o.id === g.reviewsGroupId)) keep.set(g.id, g.reviewsGroupId);
+    });
+    const final = new Map(keep);
+    for (const [r, t] of plan.links) {
+      assert.ok(!keep.has(r), "an existing link is not changed");
+      assert.notEqual(r, t, "no group reviews itself");
+      assert.ok(active.some((g) => g.id === r) && active.some((g) => g.id === t), "empty groups take no part");
+      assert.ok(!final.has(r), "one link per group");
+      final.set(r, t);
+    }
+    if (active.length >= 2) active.forEach((g) => assert.ok(final.has(g.id), `${g.id} reviews someone`));
+    const reviewed = new Set(final.values());
+    if (active.length >= 2)
+      assert.deepEqual(
+        active.filter((g) => !reviewed.has(g.id)).map((g) => g.id).sort(),
+        [...plan.uncovered].sort()
+      );
+    if (Object.keys(pre).length === 0 && active.length >= 2) {
+      assert.deepEqual(plan.uncovered, []);
+      assert.deepEqual(plan.doubled, []);
+    }
+  }
+});
+
+test("group numbers from ids and names", () => {
+  assert.equal(groupNumber("group-7"), 7);
+  assert.equal(groupNumber("x", "Group 12"), 12);
+  assert.equal(groupNumber("x", "Blue"), null);
 });

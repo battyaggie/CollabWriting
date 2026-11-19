@@ -1,6 +1,6 @@
 "use client";
 
-import { planRandomLinks } from "@/lib/matching";
+import { groupNumber, planRoundRobin } from "@/lib/matching";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { collection, doc, onSnapshot, orderBy, query, updateDoc, writeBatch } from "firebase/firestore";
@@ -27,6 +27,9 @@ export default function TeacherDashboardPage() {
   const [linkA, setLinkA] = useState("");
   const [linkB, setLinkB] = useState("");
   const [mutual, setMutual] = useState(true);
+  /** A link that would replace what a group is already doing: waits for the teacher's OK. */
+  const [pendingLink, setPendingLink] = useState<string[] | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
   const [hotSeatPick, setHotSeatPick] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [confirmClose, setConfirmClose] = useState(false);
@@ -89,6 +92,13 @@ export default function TeacherDashboardPage() {
   }
 
   const groupName = (id: string | null | undefined) => groups.find((g) => g.id === id)?.name ?? "—";
+  /** A group with no students takes no part in the feedback round. (Only known once the students have loaded.) */
+  const isEmpty = (id: string) => studentsLoaded && (membersByGroup.get(id) ?? []).length === 0;
+  const anyLinks = groups.some((g) => g.reviewsGroupId);
+  const noReviewer = (id: string) => !groups.some((o) => o.reviewsGroupId === id);
+  const warnings = anyLinks
+    ? groups.filter((g) => !isEmpty(g.id) && (noReviewer(g.id) || !g.reviewsGroupId))
+    : [];
 
   /** Id and name for a brand-new group, numbered after the highest existing one. */
   function nextGroup() {
@@ -163,11 +173,28 @@ export default function TeacherDashboardPage() {
   }
 
   /** Group A reviews group B (and B reviews A too if "they review each other" is ticked). */
-  async function linkGroups() {
+  async function linkGroups(confirmed = false) {
     if (!linkA || !linkB || linkA === linkB) {
       setMessage("Pick two different groups.");
       return;
     }
+    if (isEmpty(linkA) || isEmpty(linkB)) {
+      setMessage("A group without students cannot take part. Pick groups that have students.");
+      return;
+    }
+    // Never change a group's existing link without asking.
+    const replaced: string[] = [];
+    const a = groups.find((g) => g.id === linkA);
+    const b = groups.find((g) => g.id === linkB);
+    if (a?.reviewsGroupId && a.reviewsGroupId !== linkB)
+      replaced.push(`${a.name} already gives feedback to ${groupName(a.reviewsGroupId)}`);
+    if (mutual && b?.reviewsGroupId && b.reviewsGroupId !== linkA)
+      replaced.push(`${b.name} already gives feedback to ${groupName(b.reviewsGroupId)}`);
+    if (replaced.length > 0 && !confirmed) {
+      setPendingLink(replaced);
+      return;
+    }
+    setPendingLink(null);
     await saveOriginals(mutual ? [linkA, linkB] : [linkB]);
     const batch = writeBatch(db);
     batch.update(doc(db, "classes", classId, "groups", linkA), { reviewsGroupId: linkB });
@@ -186,29 +213,48 @@ export default function TeacherDashboardPage() {
     await updateDoc(doc(db, "classes", classId, "groups", groupId), { reviewsGroupId: null });
   }
 
-  /** Time's up: every group that is not yet linked gets a random partner. */
-  async function linkRestAtRandom() {
-    const free = groups.filter((g) => !g.reviewsGroupId);
-    if (free.length === 0) {
-      setMessage("Every group already has a group to review.");
+  /** Removes every link, so you can start again. The texts and feedback stay. */
+  async function clearAllLinks() {
+    const linked = groups.filter((g) => g.reviewsGroupId);
+    if (linked.length > 0) {
+      const batch = writeBatch(db);
+      linked.forEach((g) => batch.update(doc(db, "classes", classId, "groups", g.id), { reviewsGroupId: null }));
+      await batch.commit();
+    }
+    setConfirmClear(false);
+    setMessage("All links are removed.");
+  }
+
+  /** Time's up: every group that is not yet linked gives feedback to the next group above it that nobody reviews yet. */
+  async function linkRestRoundRobin() {
+    const active = groups.filter((g) => !isEmpty(g.id));
+    if (active.length < 2) {
+      setMessage("You need at least two groups with students.");
       return;
     }
-    if (groups.length < 2) {
-      setMessage("You need at least two groups.");
+    if (active.every((g) => g.reviewsGroupId && !isEmpty(g.reviewsGroupId))) {
+      setMessage("Every group already has a group to give feedback to.");
       return;
     }
-    const { links, uncovered } = planRandomLinks(groups);
+    const { links, uncovered, skippedEmpty, doubled } = planRoundRobin(
+      groups.map((g, i) => ({
+        id: g.id,
+        order: groupNumber(g.id, g.name) ?? 1000 + i,
+        empty: isEmpty(g.id),
+        reviewsGroupId: g.reviewsGroupId,
+      }))
+    );
     await saveOriginals(Array.from(new Set(links.map(([, reviewed]) => reviewed))));
     const batch = writeBatch(db);
     links.forEach(([reviewer, reviewed]) =>
       batch.update(doc(db, "classes", classId, "groups", reviewer), { reviewsGroupId: reviewed })
     );
     await batch.commit();
-    setMessage(
-      uncovered.length
-        ? `Matched at random, but ${uncovered.map(groupName).join(", ")} still get no feedback: too few groups were free. Link them by hand.`
-        : "Done: the remaining groups were matched at random, and every group gets feedback."
-    );
+    const notes: string[] = [];
+    if (skippedEmpty.length) notes.push(`${skippedEmpty.map(groupName).join(", ")} ${skippedEmpty.length === 1 ? "has" : "have"} no students and was left out.`);
+    if (uncovered.length) notes.push(`${uncovered.map(groupName).join(", ")} still get${uncovered.length === 1 ? "s" : ""} no feedback: link by hand.`);
+    if (doubled.length) notes.push(`${doubled.map(groupName).join(", ")} now get${doubled.length === 1 ? "s" : ""} feedback from two groups.`);
+    setMessage(`Done: each remaining group gives feedback to the next group above it. ${notes.join(" ")}`.trim());
   }
 
   if (!classData) {
@@ -339,7 +385,8 @@ export default function TeacherDashboardPage() {
             <h2 className="font-display text-base text-tw-navy m-0">Groups give each other feedback</h2>
             <p className="text-sm text-tw-grey mt-1 mb-0">
               Link two groups that have finished so they can read each other&rsquo;s text and give feedback. When
-              time is up, match all the remaining groups at random.
+              time is up, every group that is not linked yet gives feedback to the next group above it (the last
+              group to the first); groups you linked yourself are skipped, and groups without students are left out.
             </p>
           </div>
           <div className="flex flex-wrap items-end gap-3">
@@ -370,15 +417,58 @@ export default function TeacherDashboardPage() {
               <input type="checkbox" checked={mutual} onChange={(e) => setMutual(e.target.checked)} />
               They review each other
             </label>
-            <button className="tw-btn tw-btn-primary" onClick={linkGroups}>
+            <button className="tw-btn tw-btn-primary" onClick={() => linkGroups()}>
               Link groups
             </button>
             <span className="flex-1" />
-            <button className="tw-btn tw-btn-secondary" onClick={linkRestAtRandom}>
-              Time&rsquo;s up &mdash; match the rest at random
+            <button className="tw-btn tw-btn-secondary" onClick={linkRestRoundRobin}>
+              Time&rsquo;s up &mdash; each group gives feedback to the next
             </button>
           </div>
+          {pendingLink && (
+            <div className="bg-[#FDF3E1] border border-[#E9C46A] rounded-lg p-4 flex flex-col gap-2">
+              <span className="text-sm text-tw-navy">
+                {pendingLink.join(". ")}. Linking now would replace that. Replace it?
+              </span>
+              <div className="flex gap-3">
+                <button className="tw-btn tw-btn-primary" onClick={() => linkGroups(true)}>
+                  Replace
+                </button>
+                <button className="tw-btn tw-btn-secondary" onClick={() => setPendingLink(null)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
           {message && <p className="text-sm text-tw-green m-0">{message}</p>}
+          {warnings.length > 0 && (
+            <p className="text-sm text-[#B3261E] m-0">
+              {warnings
+                .map((g) => {
+                  const bits = [];
+                  if (noReviewer(g.id)) bits.push("gets no feedback");
+                  if (!g.reviewsGroupId) bits.push("gives feedback to nobody");
+                  return `${g.name} ${bits.join(" and ")}`;
+                })
+                .join(" \u00b7 ")}
+            </p>
+          )}
+          {anyLinks &&
+            (confirmClear ? (
+              <div className="flex items-center gap-3 text-sm text-tw-navy">
+                Remove every link? Texts and feedback stay.
+                <button className="tw-btn tw-btn-primary" onClick={clearAllLinks}>
+                  Remove all links
+                </button>
+                <button className="tw-btn tw-btn-secondary" onClick={() => setConfirmClear(false)}>
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button className="text-sm text-tw-blue self-start" onClick={() => setConfirmClear(true)}>
+                Remove all links&hellip;
+              </button>
+            ))}
         </div>
 
         <div className="bg-white border border-tw-grey-light rounded-xl p-6 flex flex-col gap-4">
@@ -440,7 +530,9 @@ export default function TeacherDashboardPage() {
                   )}
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  {members.length === 0 && <span className="text-xs text-tw-grey italic">No students in this group</span>}
+                  {members.length === 0 && (
+                    <span className="text-xs text-tw-grey italic">No students in this group &mdash; left out of the feedback round</span>
+                  )}
                   {members.map((m) => (
                     <div key={m.id} className="flex items-center justify-between gap-3">
                       <span className="flex items-center gap-1.5 text-xs text-tw-navy">
@@ -482,9 +574,19 @@ export default function TeacherDashboardPage() {
                   </span>
                   <span>
                     Gets feedback from:{" "}
-                    <strong className="text-tw-navy">
-                      {groups.filter((o) => o.reviewsGroupId === g.id).map((o) => o.name).join(", ") || "—"}
-                    </strong>
+                    {groups.filter((o) => o.reviewsGroupId === g.id).length === 0 && (
+                      <strong className={anyLinks && members.length > 0 ? "text-[#B3261E]" : "text-tw-navy"}>—</strong>
+                    )}
+                    {groups
+                      .filter((o) => o.reviewsGroupId === g.id)
+                      .map((o) => (
+                        <span key={o.id} className="ml-1 inline-flex items-center gap-1">
+                          <strong className="text-tw-navy">{o.name}</strong>
+                          <button className="text-tw-blue" aria-label={`Stop ${o.name} giving feedback to ${g.name}`} onClick={() => unlink(o.id)}>
+                            &times;
+                          </button>
+                        </span>
+                      ))}
                   </span>
                 </div>
                 <div className="flex items-center gap-3 mt-auto pt-3 border-t border-tw-border">
