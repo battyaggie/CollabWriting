@@ -32,7 +32,7 @@ export function FinalVersionButtons({ classId, groupId, classData, group }: Prop
 
   const download = () => {
     const bytes = buildDocx(lines);
-    const blob = new Blob([bytes], {
+    const blob = new Blob([bytes.buffer as ArrayBuffer], {
       type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     });
     const name = [classData.className, classData.taskName, group?.name, "final version"]
