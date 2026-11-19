@@ -7,6 +7,7 @@ import { db } from "@/lib/firebase";
 import { GroupWriter } from "@/components/GroupWriter";
 import { ColorPicker } from "@/components/ColorPicker";
 import { WaitingScreen } from "@/components/WaitingScreen";
+import { FinalVersionButtons } from "@/components/FinalVersionButtons";
 import { CommentComposer, FeedbackThread, anchorsOf, useFeedbackEntries } from "@/components/FeedbackThread";
 import { colorFor } from "@/lib/colors";
 import { hasSessionFor, useOpenExercises } from "@/lib/openExercises";
@@ -220,6 +221,9 @@ export default function StudentClassPage() {
             </button>
           )}
           <span className="flex-1" />
+          {ownGroupId && (
+            <FinalVersionButtons classId={classId} groupId={ownGroupId} classData={classData} group={groups[ownGroupId]} />
+          )}
           <a
             href={`/s/${classId}/print`}
             target="_blank"
