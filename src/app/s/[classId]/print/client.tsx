@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { collection, doc, onSnapshot, orderBy, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { GroupPrintSheet } from "@/components/GroupPrintSheet";
+import { FinalVersionButtons } from "@/components/FinalVersionButtons";
 import type { ClassDoc, FeedbackDoc, GroupDoc, RunDoc, StudentDoc, StudentSession } from "@/lib/types";
 
 /**
@@ -105,9 +106,12 @@ export default function StudentPrintPage() {
             PDF&rdquo; as the destination.
           </p>
         </div>
-        <button type="button" className="tw-btn tw-btn-primary" onClick={() => window.print()}>
-          Print / Save as PDF
-        </button>
+        <div className="flex gap-2">
+          <FinalVersionButtons classId={classId} groupId={groupId} classData={classData} group={group} />
+          <button type="button" className="tw-btn tw-btn-primary" onClick={() => window.print()}>
+            Print / Save as PDF
+          </button>
+        </div>
       </div>
 
       <div className="max-w-3xl mx-auto px-10 py-10">
