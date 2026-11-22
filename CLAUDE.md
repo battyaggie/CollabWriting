@@ -1,19 +1,9 @@
 # CollabWriting
 
-## Keep this clone in sync with GitHub
-
-GitHub is the source of truth: changes are often made and merged there (cloud sessions, pull requests) while this Mac clone stays behind. At the start of every session, including a continued one, and again before any build or deploy, before doing other work:
-
-1. Run `git fetch` and compare with `origin/main` (`git status -sb`).
-2. If the clone is behind and the working tree is clean, run `git pull --ff-only` and tell Mark in one line what came in.
-3. If it is behind and there are local changes, or the pull cannot fast-forward, do not pull. Tell Mark what differs and ask.
-4. If it is ahead, say so. Do not push unless asked.
-5. If the fetch fails (offline, SSH or network), say so rather than assuming the clone is current.
-
 ## Standing rules (set by Mark, 22 Nov 2026)
 
 - **Merge automatically.** Mark wants every pull request I open for him in this repo merged right away (squash), without asking again. Then sync the Mac (below).
-- **Syncing the Mac when it cannot reach GitHub.** The shell on the Mac (`device_bash`) usually cannot fetch from GitHub, and Terminal cannot be typed into. So: in the cloud clone run `git fetch origin && git bundle create /mnt/user-data/outputs/sync.bundle origin/main`; copy it to the Mac with `device_commit_files` to `~/AI_Projects/CollabWriting/sync.bundle` (not into `.git`); then in `device_bash` in the Mac clone run `git fetch ./sync.bundle refs/remotes/origin/main:refs/remotes/origin/main`, `git merge --ff-only origin/main` (only if the working tree is clean; otherwise ask Mark), and delete `sync.bundle`. Git on the Mac needs file deletion approved (`device_request_delete_permission`) for merges and for removing lock files.
+- **The Mac copy is not maintained.** Mark works on this project only through Claude, so GitHub is the source of truth and the Mac clone is just an old snapshot; do not sync it after merges. Mark plans a weekly backup copy to the Mac (emergencies only), set up as a scheduled task.
 
 ## Known issues / to fix later
 
