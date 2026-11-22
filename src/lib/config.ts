@@ -28,7 +28,7 @@ export const privacyNotice = {
 
 /**
  * Address that gets a copy (CC) of the "Send email with link" message on the administrator page, so the
- * administrator can forward it if the teacher's mail system blocks it. Set NEXT_PUBLIC_ADMIN_COPY_EMAIL to use another
- * address, or to an empty value for no copy.
+ * administrator can forward it if the teacher's mail system blocks it. Set NEXT_PUBLIC_ADMIN_COPY_EMAIL (for example
+ * in the Vercel project settings) to the administrator's private address; without it no copy is added.
  */
-export const adminCopyEmail = process.env.NEXT_PUBLIC_ADMIN_COPY_EMAIL ?? "batty@gmx.at";
+export const adminCopyEmail = process.env.NEXT_PUBLIC_ADMIN_COPY_EMAIL ?? "";
