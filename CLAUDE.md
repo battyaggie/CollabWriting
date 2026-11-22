@@ -2,7 +2,7 @@
 
 ## Standing rules (set by Mark, 22 Nov 2026)
 
-- **Merge automatically.** Mark wants every pull request I open for him in this repo merged right away (squash), without asking again. Then sync the Mac (below).
+- **Merge automatically.** Mark wants every pull request I open for him in this repo merged right away (squash), without asking again.
 - **The Mac copy is not maintained.** Mark works on this project only through Claude, so GitHub is the source of truth and the Mac clone is just an old snapshot; do not sync it after merges. Mark plans a weekly backup copy to the Mac (emergencies only), set up as a scheduled task.
 
 ## Known issues / to fix later
