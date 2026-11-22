@@ -10,6 +10,11 @@ GitHub is the source of truth: changes are often made and merged there (cloud se
 4. If it is ahead, say so. Do not push unless asked.
 5. If the fetch fails (offline, SSH or network), say so rather than assuming the clone is current.
 
+## Standing rules (set by Mark, 22 Nov 2026)
+
+- **Merge automatically.** Mark wants every pull request I open for him in this repo merged right away (squash), without asking again. Then sync the Mac (below).
+- **Syncing the Mac when it cannot reach GitHub.** The shell on the Mac (`device_bash`) usually cannot fetch from GitHub, and Terminal cannot be typed into. So: in the cloud clone run `git fetch origin && git bundle create /mnt/user-data/outputs/sync.bundle origin/main`; copy it to the Mac with `device_commit_files` to `~/AI_Projects/CollabWriting/sync.bundle` (not into `.git`); then in `device_bash` in the Mac clone run `git fetch ./sync.bundle refs/remotes/origin/main:refs/remotes/origin/main`, `git merge --ff-only origin/main` (only if the working tree is clean; otherwise ask Mark), and delete `sync.bundle`. Git on the Mac needs file deletion approved (`device_request_delete_permission`) for merges and for removing lock files.
+
 ## Known issues / to fix later
 
 ### Teacher password-link email does not reach Technikum addresses (found 22 Nov 2026)
