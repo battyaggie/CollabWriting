@@ -101,6 +101,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ results });
     }
 
+    case "reset-link": {
+      // Returns a one-time link for choosing a password. It sends nothing: the administrator pastes it into an email
+      // of their own, which helps when a teacher's mail system blocks Firebase's own emails.
+      const email = text(body.email).trim().toLowerCase();
+      if (!EMAIL.test(email)) return reply(400, "invalid", "Unknown address.");
+      if (!(await list.doc(email).get()).exists) return reply(404, "not-approved", "This address is not on the approved list.");
+      try {
+        await ensureAccount(email);
+        return NextResponse.json({ link: await auth.generatePasswordResetLink(email) });
+      } catch {
+        return reply(500, "failed", "Could not create the link. Please try again.");
+      }
+    }
+
     case "remove": {
       const email = text(body.email).trim().toLowerCase();
       if (!EMAIL.test(email)) return reply(400, "invalid", "Unknown address.");

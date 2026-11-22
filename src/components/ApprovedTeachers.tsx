@@ -7,9 +7,11 @@ import {
   approveExisting,
   listAllowed,
   removeAllowed,
+  resetLink,
   type AddResult,
   type AllowedTeacher,
 } from "@/lib/teacherAccess";
+import { adminCopyEmail } from "@/lib/config";
 
 const card = "bg-white border border-tw-grey-light rounded-xl p-5 flex flex-col gap-3";
 const STATUS: Record<AddResult["status"], string> = {
@@ -21,6 +23,22 @@ const STATUS: Record<AddResult["status"], string> = {
 
 function day(ms: number) {
   return new Date(ms).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" });
+}
+
+/** Opens a ready-made email (with a copy to the administrator) in the mail program; the administrator picks the sender there. */
+function openEmailWithLink(email: string, link: string) {
+  const origin = window.location.origin;
+  const body =
+    `Hello,\n\nYou now have access to the Collaborative Writing App as a teacher. Please choose your password with this link ` +
+    `(it works once and only for a limited time, so please use it soon):\n\n${link}\n\n` +
+    `Afterwards you can sign in at ${origin}/teacher/login with this email address.\n\n` +
+    `If the link no longer works, open ${origin}/teacher/login, press "First time here, or forgot your password? Send me a password link" ` +
+    `and follow the email you receive. If nothing arrives, let me know and I will send you a new link.\n`;
+  const to = encodeURIComponent(email).replace(/%40/g, "@");
+  const cc = adminCopyEmail ? `&cc=${encodeURIComponent(adminCopyEmail).replace(/%40/g, "@")}` : "";
+  const a = document.createElement("a");
+  a.href = `mailto:${to}?subject=${encodeURIComponent("Your access to the Collaborative Writing App")}${cc}&body=${encodeURIComponent(body)}`;
+  a.click();
 }
 
 /** The administrator's page for the Vercel version: who may use the app as a teacher. */
@@ -70,7 +88,9 @@ export function ApprovedTeachers() {
         <p className="text-sm text-tw-grey m-0">
           One email address per line (or separated by commas). Only approved addresses can create classes. Tell each
           teacher to open the teacher sign-in page and press <b>Send me a password link</b>: the email they receive lets
-          them choose a password.
+          them choose a password. If that email does not arrive (some universities block it), press{" "}
+          <b>Send email with link</b> next to their address below: it opens a ready-made email in your mail program
+          {adminCopyEmail ? ` with a copy to ${adminCopyEmail}` : ""}, where you choose which of your addresses to send it from.
         </p>
         <textarea
           className="border border-tw-grey-light rounded-md p-2 text-sm text-tw-navy min-h-[90px]"
@@ -121,22 +141,38 @@ export function ApprovedTeachers() {
                 {r.signedIn ? `last signed in ${day(r.signedIn)}` : "has not signed in yet"}
               </div>
             </div>
-            {!admins.includes(r.email) && (
+            <div className="flex gap-3 flex-none">
               <button
                 type="button"
-                className="text-sm text-tw-grey underline"
+                className="text-sm text-tw-blue underline"
                 disabled={busy}
-                onClick={() => {
-                  if (window.confirm(`Remove ${r.email}? They can no longer sign in or create classes.`)) {
-                    run(async () => {
-                      await removeAllowed(r.email);
-                    });
-                  }
-                }}
+                onClick={() =>
+                  run(async () => {
+                    const { link } = await resetLink(r.email);
+                    openEmailWithLink(r.email, link);
+                    setNote(`An email to ${r.email} is open in your mail program. The link only works for a short time, so send it now.`);
+                  })
+                }
               >
-                Remove
+                Send email with link
               </button>
-            )}
+              {!admins.includes(r.email) && (
+                <button
+                  type="button"
+                  className="text-sm text-tw-grey underline"
+                  disabled={busy}
+                  onClick={() => {
+                    if (window.confirm(`Remove ${r.email}? They can no longer sign in or create classes.`)) {
+                      run(async () => {
+                        await removeAllowed(r.email);
+                      });
+                    }
+                  }}
+                >
+                  Remove
+                </button>
+              )}
+            </div>
           </div>
         ))}
       </div>
